@@ -1807,33 +1807,38 @@ async function loadSettings() {
 
 // __ Sync Button________________________
 async function syncPeloton() {
-  const btn    = document.getElementById('peloton-sync-btn');
-  const status = document.getElementById('peloton-sync-status');
+    const btn    = document.getElementById('peloton-sync-btn');
+    const status = document.getElementById('peloton-sync-status');
 
-  btn.disabled = true;
-  btn.textContent = '⏳ Syncing...';
-  status.textContent = '';
+    btn.disabled = true;
+    btn.textContent = '⏳ Syncing...';
+    status.textContent = '';
 
-  try {
-      await api('/admin/sync-peloton', 'POST');
-      status.textContent = 'Sync started — check back in 30 seconds';
-      status.style.color = 'var(--lime)';
-      showToast('Peloton sync started');
-
-      // Auto reload dashboard after 30 seconds
-      setTimeout(async () => {
-          await loadDashboard();
-          status.textContent = 'Sync complete';
-          btn.disabled = false;
-          btn.textContent = '🚴 Sync Peloton Now';
-      }, 30000);
-  } catch(e) {
-      status.textContent = 'Sync failed — check API logs';
-      status.style.color = 'var(--orange)';
-      btn.disabled = false;
-      btn.textContent = '🚴 Sync Peloton Now';
-      showToast('Sync failed');
-  }
+    try:
+        const resp = await fetch(`${API}/admin/sync-peloton`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-webhook-secret': 'jidfa7&*^&*hui23238*(hui235hj*()*(&*(YHH&*H&^TTGh78hghha78'
+            }
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        status.textContent = 'Sync started — check back in 30 seconds';
+        status.style.color = 'var(--lime)';
+        showToast('Peloton sync started');
+        setTimeout(async () => {
+            await loadDashboard();
+            status.textContent = 'Sync complete';
+            btn.disabled = false;
+            btn.textContent = '🚴 Sync Peloton Now';
+        }, 30000);
+    } catch(e) {
+        status.textContent = 'Sync failed';
+        status.style.color = 'var(--orange)';
+        btn.disabled = false;
+        btn.textContent = '🚴 Sync Peloton Now';
+        showToast('Sync failed');
+    }
 }
   
 // ── VITAMINS ──────────────────────────────────────────
