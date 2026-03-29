@@ -1809,20 +1809,11 @@ async function loadSettings() {
 async function syncPeloton() {
     const btn    = document.getElementById('peloton-sync-btn');
     const status = document.getElementById('peloton-sync-status');
-
     btn.disabled = true;
     btn.textContent = '⏳ Syncing...';
     status.textContent = '';
-
-    try:
-        const resp = await fetch(`${API}/admin/sync-peloton`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-webhook-secret': 'jidfa7&*^&*hui23238*(hui235hj*()*(&*(YHH&*H&^TTGh78hghha78'
-            }
-        });
-        if (!resp.ok) throw new Error(await resp.text());
+    try {
+        await api('/admin/sync-peloton', 'POST');
         status.textContent = 'Sync started — check back in 30 seconds';
         status.style.color = 'var(--lime)';
         showToast('Peloton sync started');
