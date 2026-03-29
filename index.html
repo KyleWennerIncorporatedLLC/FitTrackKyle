@@ -962,7 +962,20 @@ svg.ring-svg { transform: rotate(-90deg); }
 <div class="tab-panel" id="tab-settings" style="display:none">
   <div class="page">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-
+      
+      <!-- ── SYNC CONTROLS ──────────────────────────────── -->
+    <div class="card" style="grid-column:1/-1">
+      <div class="card-accent-bar" style="background:var(--lime)"></div>
+      <div class="card-label">Manual Sync</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+        <button class="complete-btn" onclick="syncPeloton()" id="peloton-sync-btn">
+          🚴 Sync Peloton Now
+        </button>
+        <span id="peloton-sync-status" style="font-family:'JetBrains Mono',monospace;
+          font-size:0.75rem;color:var(--muted2)"></span>
+      </div>
+    </div>
+      
       <!-- ── VITAMINS ────────────────────────────── -->
       <div class="card">
         <div class="card-accent-bar" style="background:var(--pink)"></div>
@@ -1792,6 +1805,37 @@ async function loadSettings() {
     ]);
 }
 
+// __ Sync Button________________________
+async function syncPeloton() {
+  const btn    = document.getElementById('peloton-sync-btn');
+  const status = document.getElementById('peloton-sync-status');
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Syncing...';
+  status.textContent = '';
+
+  try {
+      await api('/admin/sync-peloton', 'POST');
+      status.textContent = 'Sync started — check back in 30 seconds';
+      status.style.color = 'var(--lime)';
+      showToast('Peloton sync started');
+
+      // Auto reload dashboard after 30 seconds
+      setTimeout(async () => {
+          await loadDashboard();
+          status.textContent = 'Sync complete';
+          btn.disabled = false;
+          btn.textContent = '🚴 Sync Peloton Now';
+      }, 30000);
+  } catch(e) {
+      status.textContent = 'Sync failed — check API logs';
+      status.style.color = 'var(--orange)';
+      btn.disabled = false;
+      btn.textContent = '🚴 Sync Peloton Now';
+      showToast('Sync failed');
+  }
+}
+  
 // ── VITAMINS ──────────────────────────────────────────
 
 async function loadVitaminSettings() {
