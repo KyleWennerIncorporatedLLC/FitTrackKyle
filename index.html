@@ -684,9 +684,7 @@ svg.ring-svg { transform: rotate(-90deg); }
         <div class="card-label">Manual Sync</div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
           <button class="complete-btn" onclick="syncPeloton()" id="peloton-sync-btn">🚴 Sync Peloton Now</button>
-          <button class="complete-btn" style="background:var(--orange);box-shadow:0 4px 20px rgba(255,112,67,0.3)" onclick="syncStrava()" id="strava-sync-btn">🏋 Sync Gym Monster Now</button>
           <span id="peloton-sync-status" style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:var(--muted2)"></span>
-          <span id="strava-sync-status" style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:var(--muted2)"></span>
         </div>
       </div>
 
@@ -805,25 +803,26 @@ let currentFilter = 'all';
 // MUSCLE MAP CONSTANTS (top-level, not inside any function)
 // ─────────────────────────────────────────────────────
 const MUSCLE_KEYWORDS = {
-  chest:      ['chest','benchpress','press','pec','push up','pushup','fly','flye'],
-  front_delt: ['shoulder','ohp','overhead','lateral raise','front raise','military'],
-  rear_delt:  ['rear delt','face pull','reverse fly','rear shoulder','bent over raise'],
-  bicep:      ['bicep','curl','hammer curl','chin up','chinup', 'arm'],
-  tricep:     ['tricep','skull crusher','pushdown','dip','close grip','extension','arm'],
-  forearm:    ['forearm','wrist','grip','arm'],
-  trap:       ['trap','shrug','upright row'],
-  lat:        ['lat','pull up','pullup','pulldown','row','back','t-bar'],
-  lower_back: ['lower back','deadlift','rdl','romanian','hyperextension','good morning'],
-  abs:        ['abs','core','crunch','sit up','situp','plank','ab wheel','hollow','hanging leg'],
-  oblique:    ['oblique','side plank','russian twist','woodchop','cable twist','core'],
-  glute:      ['glute','hip thrust','bridge','rdl','deadlift','squat','lunge','step up'],
-  quad:       ['quad','squat','leg press','lunge','leg extension','front squat','goblet'],
-  hamstring:  ['hamstring','rdl','romanian','leg curl','deadlift','nordic','glute ham','squat'],
-  calf:       ['calf','calves','calf raise','standing raise','seated raise','squat'],
+  chest:        ['chest','benchpress','press','pec','push up','pushup','fly','flye'],
+  front_delt:   ['shoulder','ohp','overhead','lateral raise','front raise','military'],
+  rear_delt:    ['rear delt','face pull','reverse fly','rear shoulder','bent over raise','high pull'],
+  rotator_cuff: ['external rotation','rotator cuff','cuff'],
+  bicep:        ['bicep','curl','hammer curl','chin up','chinup', 'arm'],
+  tricep:       ['tricep','skull crusher','pushdown','dip','close grip','extension','arm'],
+  forearm:      ['forearm','wrist','grip','arm'],
+  trap:         ['trap','shrug','upright row','high pull'],
+  lat:          ['lat','pull up','pullup','pulldown','row','back','t-bar'],
+  lower_back:   ['lower back','deadlift','rdl','romanian','hyperextension','good morning','superman'],
+  abs:          ['abs','core','crunch','sit up','situp','plank','ab wheel','hollow','hanging leg','leg raise'],
+  oblique:      ['oblique','side plank','russian twist','woodchop','cable twist','core','side hover','pallof','tabletop','shoulder tap','hip drop'],
+  glute:        ['glute','hip thrust','bridge','rdl','deadlift','squat','lunge','step up'],
+  quad:         ['quad','squat','leg press','lunge','leg extension','front squat','goblet'],
+  hamstring:    ['hamstring','rdl','romanian','leg curl','deadlift','nordic','glute ham','squat','hip thrust','lunge'],
+  calf:         ['calf','calves','calf raise','standing raise','seated raise','squat'],
 };
 
 const RECOVERY_HOURS = {
-  chest: 72, front_delt: 48, rear_delt: 48,
+  chest: 72, front_delt: 48, rear_delt: 48, rotator_cuff: 48,
   bicep: 36, tricep: 36, forearm: 24,
   trap: 48, lat: 72, lower_back: 72,
   abs: 24, oblique: 24,
@@ -831,25 +830,30 @@ const RECOVERY_HOURS = {
 };
 
 const MUSCLE_ELEMENTS = {
-  chest:      ['m-chest-l', 'm-chest-r'],
-  front_delt: ['m-front-delt-l', 'm-front-delt-r'],
-  rear_delt:  ['m-rear-delt-l', 'm-rear-delt-r'],
-  bicep:      ['m-bicep-l', 'm-bicep-r'],
-  tricep:     ['m-tricep-l', 'm-tricep-r'],
-  forearm:    ['m-forearm-l', 'm-forearm-r', 'm-forearm-back-l', 'm-forearm-back-r'],
-  trap:       ['m-trap-l', 'm-trap-r', 'm-trap-back-l', 'm-trap-back-r'],
-  lat:        ['m-lat-l', 'm-lat-r'],
-  lower_back: ['m-lower-back'],
-  abs:        ['m-abs-1l','m-abs-1r','m-abs-2l','m-abs-2r','m-abs-3l','m-abs-3r','m-abs-4l','m-abs-4r'],
-  oblique:    ['m-oblique-l', 'm-oblique-r'],
-  glute:      ['m-glute-l', 'm-glute-r'],
-  quad:       ['m-quad-l', 'm-quad-r'],
-  hamstring:  ['m-hamstring-l', 'm-hamstring-r'],
-  calf:       ['m-calf-l', 'm-calf-r', 'm-calf-back-l', 'm-calf-back-r'],
+  chest:        ['m-chest-l', 'm-chest-r'],
+  front_delt:   ['m-front-delt-l', 'm-front-delt-r'],
+  rear_delt:    ['m-rear-delt-l', 'm-rear-delt-r'],
+  // No dedicated rotator cuff path exists in this body map — it's anatomically
+  // tucked under the deltoid, so it shares the rear-delt shapes as the closest
+  // visual approximation. Tracked as its own entry (separate recovery timer +
+  // label) so it still shows correctly in the worked-muscle list.
+  rotator_cuff: ['m-rear-delt-l', 'm-rear-delt-r'],
+  bicep:        ['m-bicep-l', 'm-bicep-r'],
+  tricep:       ['m-tricep-l', 'm-tricep-r'],
+  forearm:      ['m-forearm-l', 'm-forearm-r', 'm-forearm-back-l', 'm-forearm-back-r'],
+  trap:         ['m-trap-l', 'm-trap-r', 'm-trap-back-l', 'm-trap-back-r'],
+  lat:          ['m-lat-l', 'm-lat-r'],
+  lower_back:   ['m-lower-back'],
+  abs:          ['m-abs-1l','m-abs-1r','m-abs-2l','m-abs-2r','m-abs-3l','m-abs-3r','m-abs-4l','m-abs-4r'],
+  oblique:      ['m-oblique-l', 'm-oblique-r'],
+  glute:        ['m-glute-l', 'm-glute-r'],
+  quad:         ['m-quad-l', 'm-quad-r'],
+  hamstring:    ['m-hamstring-l', 'm-hamstring-r'],
+  calf:         ['m-calf-l', 'm-calf-r', 'm-calf-back-l', 'm-calf-back-r'],
 };
 
 const MUSCLE_LABELS = {
-  chest: 'Chest', front_delt: 'Front Deltoids', rear_delt: 'Rear Deltoids',
+  chest: 'Chest', front_delt: 'Front Deltoids', rear_delt: 'Rear Deltoids', rotator_cuff: 'Rotator Cuff',
   bicep: 'Biceps', tricep: 'Triceps', forearm: 'Forearms',
   trap: 'Traps', lat: 'Lats / Back', lower_back: 'Lower Back',
   abs: 'Abs', oblique: 'Obliques',
@@ -1429,18 +1433,6 @@ async function syncPeloton() {
     showToast('Peloton sync started');
     setTimeout(async () => { await loadDashboard(); status.textContent = 'Sync complete'; btn.disabled = false; btn.textContent = '🚴 Sync Peloton Now'; }, 30000);
   } catch(e) { status.textContent = 'Sync failed'; status.style.color = 'var(--orange)'; btn.disabled = false; btn.textContent = '🚴 Sync Peloton Now'; showToast('Sync failed'); }
-}
-
-async function syncStrava() {
-  const btn = document.getElementById('strava-sync-btn');
-  const status = document.getElementById('strava-sync-status');
-  btn.disabled = true; btn.textContent = '⏳ Syncing...'; status.textContent = '';
-  try {
-    await api('/admin/sync-strava', 'POST');
-    status.textContent = 'Sync started — check back in 30 seconds'; status.style.color = 'var(--lime)';
-    showToast('Gym Monster sync started');
-    setTimeout(async () => { await loadDashboard(); status.textContent = 'Sync complete'; btn.disabled = false; btn.textContent = '🏋 Sync Gym Monster Now'; }, 30000);
-  } catch(e) { status.textContent = 'Sync failed'; status.style.color = 'var(--orange)'; btn.disabled = false; btn.textContent = '🏋 Sync Gym Monster Now'; showToast('Sync failed'); }
 }
 
 async function loadVitaminSettings() {
