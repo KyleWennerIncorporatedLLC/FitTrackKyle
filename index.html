@@ -138,6 +138,8 @@ nav { position: sticky; top: 0; z-index: 200; display: flex; align-items: center
 .block-bench { background:var(--orange-dim); color:var(--orange); }
 .block-core { background:rgba(34,204,68,0.15); color:#22cc44; }
 .cardio-due-banner { margin-top:10px; padding:8px 14px; border-radius:var(--radius-sm); background:rgba(232,50,76,0.12); border:1px solid rgba(232,50,76,0.3); color:var(--peloton); font-size:0.72rem; font-weight:700; }
+.pre-stretch-banner { margin-bottom:6px; padding:9px 14px; border-radius:var(--radius-sm); background:rgba(62,184,255,0.1); border:1px dashed rgba(62,184,255,0.35); color:var(--blue); font-size:0.74rem; font-weight:600; }
+.pre-stretch-note { color:var(--muted2); font-weight:400; font-size:0.68rem; }
 
 /* ─── WATER CARD ──────────────────────────────────── */
 .water-card { grid-column: 3 / 4; grid-row: 1 / 3; }
@@ -162,33 +164,12 @@ nav { position: sticky; top: 0; z-index: 200; display: flex; align-items: center
 .vitamin-check { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--border2); display: flex; align-items: center; justify-content: center; font-size: 0.7rem; transition: all 0.2s; }
 .vitamin-row.taken .vitamin-check { background: var(--lime); border-color: var(--lime); color: var(--bg); }
 
-/* ─── MEALS ───────────────────────────────────────── */
-.meal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
-.meal-slot { padding: 12px 14px; background: var(--s2); border-radius: var(--radius-sm); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; position: relative; min-height: 70px; }
-.meal-slot:hover { border-color: var(--border2); }
-.meal-slot-name { font-size: 0.65rem; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted2); margin-bottom: 6px; }
-.meal-tag-display { font-size: 0.88rem; font-weight: 700; }
-.meal-tag-clean { color: var(--lime); } .meal-tag-okay { color: var(--blue); } .meal-tag-cheat { color: var(--orange); }
-.meal-tag-empty { color: var(--muted); font-weight: 400; font-size: 0.78rem; }
-
 /* ─── DASHBOARD GRID ──────────────────────────────── */
 .dash-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; }
 .stat-val { font-family: 'Bebas Neue', sans-serif; font-size: 3.2rem; letter-spacing: 2px; line-height: 1; }
 .stat-sub { font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; color: var(--muted2); margin-top: 4px; }
 .stat-delta { display: inline-flex; align-items: center; gap: 4px; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 20px; margin-top: 10px; }
 .delta-good { background: var(--lime-dim); color: var(--lime); } .delta-bad { background: var(--orange-dim); color: var(--orange); } .delta-neut { background: var(--s3); color: var(--muted2); }
-
-/* ─── RECOVERY ────────────────────────────────────── */
-.recovery-arc { display: flex; align-items: center; gap: 20px; margin-top: 4px; }
-.recovery-ring { position: relative; width: 90px; height: 90px; flex-shrink: 0; }
-.recovery-ring svg { transform: rotate(-90deg); }
-.recovery-ring-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.recovery-score-num { font-family: 'Bebas Neue', sans-serif; font-size: 1.6rem; line-height: 1; letter-spacing: 1px; }
-.recovery-score-label { font-size: 0.55rem; font-family: 'JetBrains Mono', monospace; color: var(--muted2); text-transform: uppercase; }
-.recovery-stats { display: flex; flex-direction: column; gap: 6px; }
-.recovery-stat-row { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
-.recovery-stat-label { font-size: 0.68rem; color: var(--muted2); }
-.recovery-stat-val { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--text); font-weight: 500; }
 
 /* ─── HEATMAP ─────────────────────────────────────── */
 .heatmap-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
@@ -298,11 +279,6 @@ svg.ring-svg { transform: rotate(-90deg); }
 .intensity-picker { display: flex; gap: 8px; }
 .int-btn { flex: 1; padding: 10px 0; border-radius: var(--radius-sm); border: 1px solid var(--border2); background: var(--s2); color: var(--muted2); font-family: 'Syne', sans-serif; font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: all 0.15s; text-align: center; }
 .int-btn.selected { background: var(--lime-dim); color: var(--lime); border-color: rgba(200,255,87,0.4); }
-.meal-tag-btns { display: flex; gap: 10px; }
-.meal-tag-btn { flex: 1; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border2); background: var(--s2); font-family: 'Syne', sans-serif; font-size: 0.82rem; font-weight: 700; cursor: pointer; text-align: center; transition: all 0.15s; }
-.meal-tag-btn.clean.selected { background: var(--lime-dim); color: var(--lime); border-color: rgba(200,255,87,0.4); }
-.meal-tag-btn.okay.selected { background: var(--blue-dim); color: var(--blue); border-color: rgba(62,184,255,0.4); }
-.meal-tag-btn.cheat.selected { background: var(--orange-dim); color: var(--orange); border-color: rgba(255,112,67,0.4); }
 
 /* ─── FAB / TOAST ─────────────────────────────────── */
 .fab { position: fixed; bottom: 28px; right: 28px; z-index: 400; padding: 14px 26px; background: var(--lime); color: var(--bg); border: none; border-radius: 50px; font-family: 'Bebas Neue', sans-serif; font-size: 1rem; letter-spacing: 2px; cursor: pointer; box-shadow: 0 6px 28px var(--lime-glow); transition: transform 0.2s, box-shadow 0.2s; }
@@ -319,15 +295,6 @@ svg.ring-svg { transform: rotate(-90deg); }
 .vitamin-settings-schedule { font-size: 0.62rem; font-family: 'JetBrains Mono', monospace; color: var(--muted2); text-transform: uppercase; letter-spacing: 1px; }
 .vitamin-delete-btn { background: transparent; border: 1px solid var(--border2); color: var(--muted); border-radius: 6px; padding: 4px 10px; font-size: 0.7rem; font-weight: 700; cursor: pointer; font-family: 'Syne', sans-serif; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
 .vitamin-delete-btn:hover { border-color: var(--orange); color: var(--orange); }
-.schedule-row { display: grid; grid-template-columns: 80px 1fr 1fr auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
-.schedule-row:last-child { border-bottom: none; }
-.schedule-day-label { font-size: 0.72rem; font-weight: 700; color: var(--muted2); text-transform: uppercase; letter-spacing: 1px; }
-.schedule-select { width: 100%; padding: 7px 10px; background: var(--s2); border: 1px solid var(--border2); border-radius: var(--radius-sm); color: var(--text); font-family: 'Syne', sans-serif; font-size: 0.78rem; outline: none; transition: border-color 0.2s; }
-.schedule-select:focus { border-color: var(--lime); }
-.schedule-focus-input { width: 100%; padding: 7px 10px; background: var(--s2); border: 1px solid var(--border2); border-radius: var(--radius-sm); color: var(--text); font-family: 'Syne', sans-serif; font-size: 0.78rem; outline: none; transition: border-color 0.2s; }
-.schedule-focus-input:focus { border-color: var(--lime); }
-.schedule-save-btn { background: var(--lime-dim); color: var(--lime); border: 1px solid rgba(200,255,87,0.3); border-radius: 6px; padding: 4px 12px; font-size: 0.7rem; font-weight: 700; cursor: pointer; font-family: 'Syne', sans-serif; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
-.schedule-save-btn:hover { background: rgba(200,255,87,0.2); }
 
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -427,13 +394,6 @@ svg.ring-svg { transform: rotate(-90deg); }
         <div class="card-accent-bar" style="background:var(--pink)"></div>
         <div class="card-label">Vitamins</div>
         <div class="vitamin-list" id="vitamin-list"><div class="empty-state">Loading...</div></div>
-      </div>
-	  
-	        <!-- Meals -->
-      <div class="card meals-card">
-        <div class="card-accent-bar" style="background:var(--orange)"></div>
-        <div class="card-label">Meals Today</div>
-        <div class="meal-grid" id="meal-grid"></div>
       </div>
 
       <!-- Muscle Recovery Map -->
@@ -644,17 +604,11 @@ svg.ring-svg { transform: rotate(-90deg); }
         </table>
       </div>
 
-      <div class="card" style="grid-column:1/4">
+      <div class="card" style="grid-column:1/-1">
         <div class="card-accent-bar" style="background:var(--blue)"></div>
         <div class="card-label">Weight Trend</div>
         <div class="mini-chart-wrap" id="weight-chart-wrap"><div class="chart-empty">No data yet</div></div>
         <div class="weight-entries" id="weight-entries"></div>
-      </div>
-
-      <div class="card" style="grid-column:4/-1">
-        <div class="card-accent-bar" style="background:var(--pink)"></div>
-        <div class="card-label">Recovery</div>
-        <div class="recovery-arc" id="recovery-arc"><div class="empty-state" style="padding:8px">No data</div></div>
       </div>
 
       <div class="card" style="grid-column:1/-1">
@@ -729,12 +683,6 @@ svg.ring-svg { transform: rotate(-90deg); }
         <div id="settings-vitamin-list"><div class="empty-state">Loading...</div></div>
       </div>
 
-      <div class="card">
-        <div class="card-accent-bar" style="background:var(--lime)"></div>
-        <div class="card-label">Weekly Workout Schedule</div>
-        <div id="schedule-list"><div class="empty-state">Loading...</div></div>
-      </div>
-
     </div>
   </div>
 </div>
@@ -782,27 +730,6 @@ svg.ring-svg { transform: rotate(-90deg); }
   </div>
 </div>
 
-<!-- ═══ MEAL MODAL ═════════════════════════════════ -->
-<div class="modal-overlay" id="meal-modal">
-  <div class="modal">
-    <div class="modal-title" id="meal-modal-title">LOG MEAL</div>
-    <input type="hidden" id="meal-type-hidden">
-    <div class="modal-field">
-      <label class="modal-label">How was it?</label>
-      <div class="meal-tag-btns">
-        <button class="meal-tag-btn clean" onclick="selectMealTag('clean')">✅ Clean</button>
-        <button class="meal-tag-btn okay" onclick="selectMealTag('okay')">👍 Okay</button>
-        <button class="meal-tag-btn cheat" onclick="selectMealTag('cheat')">🍕 Cheat</button>
-      </div>
-    </div>
-    <div class="modal-field"><label class="modal-label">Notes (optional)</label><input class="modal-input" type="text" id="meal-notes" placeholder="What did you have?"></div>
-    <div class="modal-actions">
-      <button class="modal-cancel" onclick="closeModal('meal-modal')">Cancel</button>
-      <button class="modal-submit" onclick="submitMeal()">SAVE</button>
-    </div>
-  </div>
-</div>
-
 <button class="fab" id="fab-btn" onclick="openWorkoutModal(false)" style="display:none">+ LOG WORKOUT</button>
 <div class="toast" id="toast"></div>
 
@@ -820,7 +747,6 @@ let userId = localStorage.getItem('ft_user_id');
 let userName = localStorage.getItem('ft_name');
 let dashData = null;
 let selectedIntensity = 3;
-let selectedMealTag = null;
 let waterOz = 0;
 let allWorkouts = [];
 let currentFilter = 'all';
@@ -1024,7 +950,6 @@ async function loadDashboard() {
     renderLeaderboard();
     renderRings();
     renderBadges();
-    renderRecovery();
     renderBodyCompTable();
   } catch(e) {
     console.error('Dashboard load error:', e);
@@ -1040,7 +965,6 @@ function renderTodayStatic() {
   const today = new Date();
   document.getElementById('today-day-label').textContent =
     `${days[today.getDay()]} · ${today.toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' })}`;
-  renderMealGrid([]);
   renderVitamins([]);
   renderWaterRing(0);
 }
@@ -1055,7 +979,6 @@ function renderTodayDynamic() {
   waterOz = dashData.water?.today_oz || 0;
   renderWaterRing(waterOz);
   renderVitamins(dashData.vitamins || []);
-  renderMealGrid(dashData.meals_today || []);
   const steps = dashData.steps;
   const stepGoal = 10000;
   if (steps) {
@@ -1203,7 +1126,11 @@ function renderSuggestedPlan(data) {
     ? `<div class="cardio-due-banner">🚴 Cardio due — ${data.cardio.days_since ?? 'no'} day(s) since your last Peloton ride</div>`
     : '';
 
-  listEl.innerHTML = data.exercises.map(ex => `
+  const stretchBanner = data.plan_day?.pre_stretch
+    ? `<div class="pre-stretch-banner">🧘 Pre-session stretch: <strong>${data.plan_day.pre_stretch}</strong> <span class="pre-stretch-note">(untimed, doesn't count toward the session)</span></div>`
+    : '';
+
+  listEl.innerHTML = stretchBanner + data.exercises.map(ex => `
     <div class="plan-exercise-row ${ex.completed ? 'completed' : ''}">
       <div class="plan-exercise-checkbox ${ex.completed ? 'checked' : ''}"
            onclick="toggleExercise(${ex.plan_exercise_id}, ${ex.completed})">${ex.completed ? '✓' : ''}</div>
@@ -1283,19 +1210,6 @@ function renderVitamins(vitamins) {
       <div><div class="vitamin-name">${v.vitamin_name}</div><div class="vitamin-schedule">${v.schedule}</div></div>
       <div class="vitamin-check">${v.taken ? '✓' : ''}</div>
     </div>`).join('');
-}
-
-function renderMealGrid(meals) {
-  const types = ['breakfast','lunch','dinner','snack'];
-  const mealMap = {};
-  meals.forEach(m => mealMap[m.meal_type] = m);
-  document.getElementById('meal-grid').innerHTML = types.map(type => {
-    const m = mealMap[type];
-    const tagHtml = m
-      ? `<div class="meal-tag-display meal-tag-${m.tag}">${m.tag === 'clean' ? '✅ Clean' : m.tag === 'okay' ? '👍 Okay' : '🍕 Cheat'}</div>${m.notes ? `<div style="font-size:0.65rem;color:var(--muted2);margin-top:4px">${m.notes}</div>` : ''}`
-      : `<div class="meal-tag-empty">Tap to log</div>`;
-    return `<div class="meal-slot" onclick="openMealModal('${type}')"><div class="meal-slot-name">${type}</div>${tagHtml}</div>`;
-  }).join('');
 }
 
 // ─────────────────────────────────────────────────────
@@ -1388,31 +1302,6 @@ function renderBadges() {
   document.getElementById('badges-grid').innerHTML = badges.map(b =>
     `<div class="badge-item ${b.earned ? 'earned' : 'locked'}" title="${b.label}">${b.icon}<span class="badge-label">${b.label}</span></div>`
   ).join('');
-}
-
-function renderRecovery() {
-  const rec = dashData?.recovery;
-  const el = document.getElementById('recovery-arc');
-  if (!rec) { el.innerHTML = '<div class="empty-state" style="padding:8px">No data yet<br><small style="color:var(--muted)">Connects via HA + Samsung/Withings</small></div>'; return; }
-  const score = rec.score || 0;
-  const color = score >= 70 ? 'var(--lime)' : score >= 40 ? 'var(--blue)' : 'var(--orange)';
-  const circ = 2 * Math.PI * 34;
-  el.innerHTML = `
-    <div class="recovery-ring">
-      <svg width="90" height="90" viewBox="0 0 90 90">
-        <circle cx="45" cy="45" r="34" fill="none" stroke="var(--s3)" stroke-width="8"/>
-        <circle cx="45" cy="45" r="34" fill="none" stroke="${color}" stroke-width="8" stroke-dasharray="${circ}" stroke-dashoffset="${circ - circ * (score/100)}" stroke-linecap="round"/>
-      </svg>
-      <div class="recovery-ring-text">
-        <div class="recovery-score-num" style="color:${color}">${score}</div>
-        <div class="recovery-score-label">/ 100</div>
-      </div>
-    </div>
-    <div class="recovery-stats">
-      <div class="recovery-stat-row"><span class="recovery-stat-label">HRV</span><span class="recovery-stat-val">${rec.hrv_avg ?? '—'} ms</span></div>
-      <div class="recovery-stat-row"><span class="recovery-stat-label">Resting HR</span><span class="recovery-stat-val">${rec.resting_hr ?? '—'} bpm</span></div>
-      <div class="recovery-stat-row"><span class="recovery-stat-label">Sleep</span><span class="recovery-stat-val">${rec.sleep_hrs ?? '—'} hrs</span></div>
-    </div>`;
 }
 
 // ─────────────────────────────────────────────────────
@@ -1599,7 +1488,7 @@ function filterHistory(filter, btn) {
 // SETTINGS TAB
 // ─────────────────────────────────────────────────────
 async function loadSettings() {
-  await Promise.all([loadVitaminSettings(), loadScheduleSettings()]);
+  await loadVitaminSettings();
 }
 
 async function syncPeloton() {
@@ -1652,49 +1541,6 @@ async function deleteVitamin(id, name) {
   } catch(e) { showToast('Error removing vitamin'); }
 }
 
-const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-
-async function loadScheduleSettings() {
-  const el = document.getElementById('schedule-list');
-  try { renderScheduleSettings(await api(`/schedule/${userId}`) || []); }
-  catch(e) { el.innerHTML = '<div class="empty-state">Error loading schedule</div>'; }
-}
-
-function renderScheduleSettings(schedule) {
-  const el = document.getElementById('schedule-list');
-  const byDay = {};
-  schedule.forEach(s => byDay[s.day_of_week] = s);
-  el.innerHTML = `
-    <div style="display:grid;grid-template-columns:80px 1fr 1fr auto;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:4px;">
-      <span class="card-label" style="margin:0">Day</span><span class="card-label" style="margin:0">Equipment</span><span class="card-label" style="margin:0">Focus Area</span><span></span>
-    </div>
-    ${DAY_NAMES.map((day, i) => {
-      const entry = byDay[i] || {};
-      return `<div class="schedule-row">
-        <span class="schedule-day-label">${day.substring(0,3)}</span>
-        <select class="schedule-select" id="sched-eq-${i}">
-          <option value="rest" ${entry.equipment === 'rest' ? 'selected' : ''}>Rest</option>
-          <option value="peloton" ${entry.equipment === 'peloton' ? 'selected' : ''}>🚴 Peloton</option>
-          <option value="gym_monster" ${entry.equipment === 'gym_monster' ? 'selected' : ''}>🏋 Gym Monster</option>
-          <option value="walking" ${entry.equipment === 'walking' ? 'selected' : ''}>🚶 Walking</option>
-          <option value="both" ${entry.equipment === 'both' ? 'selected' : ''}>Both</option>
-        </select>
-        <input class="schedule-focus-input" type="text" id="sched-focus-${i}" value="${entry.focus_area || ''}" placeholder="e.g. Upper Body">
-        <button class="schedule-save-btn" onclick="saveScheduleDay(${i})">Save</button>
-      </div>`;
-    }).join('')}`;
-}
-
-async function saveScheduleDay(dayOfWeek) {
-  const equipment = document.getElementById(`sched-eq-${dayOfWeek}`).value;
-  const focus_area = document.getElementById(`sched-focus-${dayOfWeek}`).value.trim();
-  try {
-    await api(`/schedule/${userId}`, 'PUT', { day_of_week: dayOfWeek, equipment, focus_area: focus_area || null, notes: null });
-    showToast(`${DAY_NAMES[dayOfWeek]} saved`);
-    if (dashData) { dashData.todays_schedule = { equipment, focus_area }; renderTodayDynamic(); }
-  } catch(e) { showToast('Error saving schedule'); }
-}
-
 // ─────────────────────────────────────────────────────
 // ACTIONS
 // ─────────────────────────────────────────────────────
@@ -1714,35 +1560,6 @@ async function toggleVitamin(name, alreadyTaken) {
     renderVitamins(await api(`/vitamins/today/${userId}`) || []);
     showToast(`✓ ${name} logged`);
   } catch(e) { showToast('Error logging vitamin'); }
-}
-
-function openMealModal(mealType) {
-  selectedMealTag = null;
-  document.getElementById('meal-type-hidden').value = mealType;
-  document.getElementById('meal-modal-title').textContent = `LOG ${mealType.toUpperCase()}`;
-  document.getElementById('meal-notes').value = '';
-  document.querySelectorAll('.meal-tag-btn').forEach(b => b.classList.remove('selected'));
-  openModal('meal-modal');
-}
-
-function selectMealTag(tag) {
-  selectedMealTag = tag;
-  document.querySelectorAll('.meal-tag-btn').forEach(b => b.classList.remove('selected'));
-  document.querySelector(`.meal-tag-btn.${tag}`).classList.add('selected');
-}
-
-async function submitMeal() {
-  if (!selectedMealTag) { showToast('Please select clean / okay / cheat'); return; }
-  const mealType = document.getElementById('meal-type-hidden').value;
-  const notes = document.getElementById('meal-notes').value;
-  try {
-    await api('/meals', 'POST', { meal_type: mealType, tag: selectedMealTag, notes });
-    closeModal('meal-modal');
-    showToast(`${mealType} logged as ${selectedMealTag}`);
-    const meals = await api(`/meals/${userId}?limit=4`);
-    const today = new Date().toDateString();
-    renderMealGrid((meals || []).filter(m => new Date(m.logged_at).toDateString() === today));
-  } catch(e) { showToast('Error logging meal'); }
 }
 
 function openWorkoutModal(prefilled) {
