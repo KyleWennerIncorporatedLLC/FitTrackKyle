@@ -1047,21 +1047,11 @@ function renderTodayStatic() {
 
 function renderTodayDynamic() {
   if (!dashData) return;
-  const sched = dashData.todays_schedule;
-  const titleEl = document.getElementById('today-schedule-title');
-  const metaEl = document.getElementById('today-schedule-meta');
-  if (sched && sched.equipment !== 'rest') {
-    titleEl.innerHTML = `<span>${sched.focus_area || sched.equipment.replace('_',' ').toUpperCase()}</span>`;
-    let tags = '';
-    if (sched.equipment === 'peloton' || sched.equipment === 'both') tags += `<span class="eq-tag eq-peloton">🚴 Peloton</span>`;
-    if (sched.equipment === 'gym_monster' || sched.equipment === 'both') tags += `<span class="eq-tag eq-gym">🏋 Gym Monster</span>`;
-    metaEl.innerHTML = tags;
-    document.getElementById('wk-equipment').value = sched.equipment === 'both' ? 'peloton' : sched.equipment;
-    if (sched.focus_area) document.getElementById('wk-focus').value = sched.focus_area;
-  } else {
-    titleEl.innerHTML = 'REST DAY';
-    metaEl.innerHTML = '<span class="eq-tag eq-rest">Recovery</span>';
-  }
+  // NOTE: today-schedule-title / today-schedule-meta / wk-equipment / wk-focus
+  // used to be driven by workout_schedule (day-of-week) here. That's now handled
+  // by renderSuggestedPlan() instead, sourced from /plan/suggested — the actual
+  // history-based recommendation, not a fixed calendar slot. Leaving both would
+  // show two different, disagreeing "today's workout" values on the same page.
   waterOz = dashData.water?.today_oz || 0;
   renderWaterRing(waterOz);
   renderVitamins(dashData.vitamins || []);
@@ -1180,17 +1170,34 @@ async function loadTodaysPlan() {
 function renderSuggestedPlan(data) {
   const listEl = document.getElementById('suggested-plan-list');
   const labelEl = document.getElementById('suggested-plan-label');
+  const titleEl = document.getElementById('today-schedule-title');
+  const metaEl = document.getElementById('today-schedule-meta');
   if (!listEl || !labelEl) return;
 
   if (!data || !data.exercises || !data.exercises.length) {
     labelEl.textContent = 'Suggested Workout';
     listEl.innerHTML = `<div class="empty-state">${data?.error || 'No plan data yet'}</div>`;
+    if (titleEl) titleEl.innerHTML = 'NO PLAN YET';
+    if (metaEl) metaEl.innerHTML = '';
     return;
   }
 
   const dayLabel = data.plan_day?.label || data.suggested_day_key;
   const variantTag = data.plan_day?.variant ? ` · Variant ${data.plan_day.variant}` : '';
   labelEl.textContent = `Suggested: ${dayLabel}${variantTag}`;
+
+  // Today's Plan card (top of page) now mirrors this same suggested day —
+  // single source of truth instead of the old day-of-week schedule.
+  if (titleEl) titleEl.innerHTML = `<span>${dayLabel}</span>${variantTag}`;
+  if (metaEl) {
+    let tags = `<span class="eq-tag eq-gym">🏋 Gym Monster</span>`;
+    if (data.cardio && data.cardio.due) tags += `<span class="eq-tag eq-peloton">🚴 Cardio due</span>`;
+    metaEl.innerHTML = tags;
+  }
+  const wkEquipEl = document.getElementById('wk-equipment');
+  const wkFocusEl = document.getElementById('wk-focus');
+  if (wkEquipEl) wkEquipEl.value = 'gym_monster';
+  if (wkFocusEl) wkFocusEl.value = dayLabel;
 
   const cardioBanner = (data.cardio && data.cardio.due)
     ? `<div class="cardio-due-banner">🚴 Cardio due — ${data.cardio.days_since ?? 'no'} day(s) since your last Peloton ride</div>`
