@@ -123,6 +123,22 @@ nav { position: sticky; top: 0; z-index: 200; display: flex; align-items: center
 .quick-btn { padding: 8px 16px; border-radius: 20px; border: 1px solid var(--border2); background: var(--s2); color: var(--text); font-family: 'Syne', sans-serif; font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: all 0.2s; }
 .quick-btn:hover { border-color: var(--lime); color: var(--lime); }
 
+/* ─── SUGGESTED PLAN CHECKLIST ────────────────────── */
+.plan-exercise-row { display:flex; align-items:center; gap:12px; padding:10px 14px; background:var(--s2); border-radius:var(--radius-sm); border:1px solid var(--border); transition:all 0.2s; }
+.plan-exercise-row.completed { border-color:rgba(200,255,87,0.35); background:var(--lime-dim); }
+.plan-exercise-checkbox { width:22px; height:22px; border-radius:6px; border:2px solid var(--border2); background:var(--s1); cursor:pointer; flex-shrink:0; display:flex; align-items:center; justify-content:center; transition:all 0.15s; font-size:0.85rem; color:var(--bg); font-weight:800; }
+.plan-exercise-checkbox:hover { border-color:var(--lime); }
+.plan-exercise-checkbox.checked { background:var(--lime); border-color:var(--lime); }
+.plan-exercise-info { flex:1; min-width:0; }
+.plan-exercise-name { font-size:0.85rem; font-weight:700; color:var(--text); }
+.plan-exercise-name.completed { text-decoration:line-through; color:var(--muted2); }
+.plan-exercise-meta { font-size:0.66rem; color:var(--muted2); font-family:'JetBrains Mono',monospace; margin-top:2px; }
+.plan-exercise-block-tag { font-size:0.58rem; padding:3px 9px; border-radius:10px; text-transform:uppercase; letter-spacing:0.5px; font-weight:800; flex-shrink:0; white-space:nowrap; }
+.block-no_bench { background:var(--blue-dim); color:var(--blue); }
+.block-bench { background:var(--orange-dim); color:var(--orange); }
+.block-core { background:rgba(34,204,68,0.15); color:#22cc44; }
+.cardio-due-banner { margin-top:10px; padding:8px 14px; border-radius:var(--radius-sm); background:rgba(232,50,76,0.12); border:1px solid rgba(232,50,76,0.3); color:var(--peloton); font-size:0.72rem; font-weight:700; }
+
 /* ─── WATER CARD ──────────────────────────────────── */
 .water-card { grid-column: 3 / 4; grid-row: 1 / 3; }
 .water-visual { display: flex; flex-direction: column; align-items: center; gap: 14px; margin: 8px 0; }
@@ -374,6 +390,15 @@ svg.ring-svg { transform: rotate(-90deg); }
         </div>
       </div>
 
+      <!-- Suggested Workout (exercise checklist) -->
+      <div class="card" id="suggested-plan-card" style="grid-column:1/3">
+        <div class="card-accent-bar" style="background:var(--lime)"></div>
+        <div class="card-label" id="suggested-plan-label">Suggested Workout</div>
+        <div id="suggested-plan-list" style="display:flex;flex-direction:column;gap:8px">
+          <div class="empty-state">Loading...</div>
+        </div>
+      </div>
+
       <!-- Water -->
       <div class="card water-card">
         <div class="card-accent-bar" style="background:var(--blue)"></div>
@@ -520,6 +545,7 @@ svg.ring-svg { transform: rotate(-90deg); }
             <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:2px;background:#aacc00"></div><span style="font-size:0.62rem;color:var(--muted2)">Almost ready</span></div>
             <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:2px;background:#22cc44"></div><span style="font-size:0.62rem;color:var(--muted2)">Fully recovered</span></div>
             <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:2px;background:var(--s3);border:1px solid var(--border2)"></div><span style="font-size:0.62rem;color:var(--muted2)">Not tracked</span></div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:4px"><div style="width:10px;height:10px;border-radius:2px;background:transparent;border:2px dashed var(--lime)"></div><span style="font-size:0.62rem;color:var(--lime);font-weight:700">Today's target</span></div>
             <div id="muscle-worked-list" style="margin-top:10px;display:flex;flex-direction:column;gap:3px"></div>
           </div>
         </div>
@@ -798,6 +824,7 @@ let selectedMealTag = null;
 let waterOz = 0;
 let allWorkouts = [];
 let currentFilter = 'all';
+let todaysPlan = null;
 
 // ─────────────────────────────────────────────────────
 // MUSCLE MAP CONSTANTS (top-level, not inside any function)
@@ -858,6 +885,52 @@ const MUSCLE_LABELS = {
   trap: 'Traps', lat: 'Lats / Back', lower_back: 'Lower Back',
   abs: 'Abs', oblique: 'Obliques',
   glute: 'Glutes', quad: 'Quads', hamstring: 'Hamstrings', calf: 'Calves',
+};
+
+// Exact exercise name -> muscle category keys, for the "today's target" highlight.
+// Unlike MUSCLE_KEYWORDS (which fuzzy-matches free-typed focus_area text), this is a
+// precise lookup against the exercises table seeded by plan_migration.sql — safe to
+// match exactly since both come from the same source.
+const EXERCISE_MUSCLE_CATEGORIES = {
+  'Standing Dual-Handle Chest Press': ['chest', 'front_delt', 'tricep'],
+  'Standing Alternating Chest Fly': ['chest', 'oblique'],
+  'Barbell Bench Press': ['chest', 'tricep', 'front_delt'],
+  'Standing Tricep Rope Pushdown': ['tricep'],
+  'Plank Jacks': ['abs', 'front_delt'],
+  'Alternating Cross Crunch': ['oblique', 'abs'],
+  'Standing Dual-Handle High-to-Low Chest Press': ['chest', 'tricep', 'abs'],
+  'Single-Arm Chest Press': ['chest', 'abs'],
+  'Incline Dual-Handle Chest Press': ['chest', 'front_delt'],
+  'Standing Horizontal Woodchops': ['oblique', 'front_delt', 'glute'],
+  'Standing Dual-Handle Lat Pulldown': ['lat', 'bicep', 'rear_delt'],
+  'Bent-Over Alternating Row': ['lat', 'trap', 'bicep'],
+  'Seated Cable Row': ['lat', 'trap', 'bicep'],
+  'Standing Single-Arm Biceps Curl': ['bicep'],
+  'Superman T (Lying)': ['lower_back', 'glute', 'rear_delt'],
+  'Side Hover': ['oblique', 'glute', 'rear_delt'],
+  'Upper Body Rowing': ['lat', 'rear_delt', 'bicep'],
+  'Single-Arm High Pull': ['rear_delt', 'trap'],
+  'Chest-Supported Row': ['lat', 'rear_delt'],
+  'Standing Cable External Rotation': ['rotator_cuff'],
+  'Bodyweight Squat': ['quad', 'glute', 'hamstring'],
+  'Belted Calf Raise': ['calf'],
+  'Hip Thrust': ['glute', 'hamstring'],
+  'Bulgarian Split Squat': ['quad', 'glute'],
+  'Bodyweight Straight Leg Raise': ['abs'],
+  'Tabletop Shoulder Tap': ['oblique', 'front_delt'],
+  'Barbell Squat': ['quad', 'glute', 'hamstring'],
+  'Dual-Handle Staggered Deadlift': ['hamstring', 'glute', 'lower_back'],
+  'Dual-Handle Front Squat': ['quad', 'glute', 'abs'],
+  'Barbell Alternating Reverse Lunge': ['glute', 'quad', 'hamstring'],
+  'Pallof Press': ['oblique'],
+  'Standing Dual-Handle Overhead Press': ['front_delt', 'rear_delt', 'tricep'],
+  'Seated Dual-Handle Shoulder Press': ['front_delt', 'tricep'],
+  'Seated Tricep Extension': ['tricep'],
+  'Side Hover Rotation': ['oblique'],
+  'Plank with Hip Drop': ['oblique', 'glute'],
+  'Standing Lateral Raise': ['front_delt'],
+  'Standing Front Raise': ['front_delt'],
+  'Seated Alternating Biceps Curl': ['bicep'],
 };
 
 // ─────────────────────────────────────────────────────
@@ -943,6 +1016,7 @@ async function loadDashboard() {
     if (!dashData) return;
     renderTodayDynamic();
     renderMuscleMap();
+    await loadTodaysPlan();
     renderDashboard();
     renderHeatmap();
     renderWorkoutsTable();
@@ -1088,8 +1162,106 @@ function renderMuscleMap() {
 }
 
 // ─────────────────────────────────────────────────────
-// RENDER HELPERS
+// SUGGESTED WORKOUT PLAN (exercise checklist + target highlight)
 // ─────────────────────────────────────────────────────
+async function loadTodaysPlan() {
+  const listEl = document.getElementById('suggested-plan-list');
+  try {
+    const data = await api(`/plan/suggested/${userId}`);
+    todaysPlan = data;
+    renderSuggestedPlan(data);
+    applyTargetHighlight(data?.exercises || []);
+  } catch(e) {
+    if (listEl) listEl.innerHTML = '<div class="empty-state">Error loading plan</div>';
+    console.error('loadTodaysPlan error:', e);
+  }
+}
+
+function renderSuggestedPlan(data) {
+  const listEl = document.getElementById('suggested-plan-list');
+  const labelEl = document.getElementById('suggested-plan-label');
+  if (!listEl || !labelEl) return;
+
+  if (!data || !data.exercises || !data.exercises.length) {
+    labelEl.textContent = 'Suggested Workout';
+    listEl.innerHTML = `<div class="empty-state">${data?.error || 'No plan data yet'}</div>`;
+    return;
+  }
+
+  const dayLabel = data.plan_day?.label || data.suggested_day_key;
+  const variantTag = data.plan_day?.variant ? ` · Variant ${data.plan_day.variant}` : '';
+  labelEl.textContent = `Suggested: ${dayLabel}${variantTag}`;
+
+  const cardioBanner = (data.cardio && data.cardio.due)
+    ? `<div class="cardio-due-banner">🚴 Cardio due — ${data.cardio.days_since ?? 'no'} day(s) since your last Peloton ride</div>`
+    : '';
+
+  listEl.innerHTML = data.exercises.map(ex => `
+    <div class="plan-exercise-row ${ex.completed ? 'completed' : ''}">
+      <div class="plan-exercise-checkbox ${ex.completed ? 'checked' : ''}"
+           onclick="toggleExercise(${ex.plan_exercise_id}, ${ex.completed})">${ex.completed ? '✓' : ''}</div>
+      <div class="plan-exercise-info">
+        <div class="plan-exercise-name ${ex.completed ? 'completed' : ''}">${ex.name}</div>
+        <div class="plan-exercise-meta">${ex.muscle_groups} · ${ex.sets_reps}</div>
+      </div>
+      <span class="plan-exercise-block-tag block-${ex.block}">${ex.block.replace('_', ' ')}</span>
+    </div>
+  `).join('') + cardioBanner;
+}
+
+async function toggleExercise(planExerciseId, isCompleted) {
+  try {
+    if (isCompleted) {
+      if (!todaysPlan?.workout_id) return;
+      await api(`/plan/exercises/${todaysPlan.workout_id}/${planExerciseId}`, 'DELETE');
+    } else {
+      await api('/plan/exercises/complete', 'POST', { plan_exercise_id: planExerciseId });
+    }
+    await loadTodaysPlan();
+    showToast(isCompleted ? 'Unchecked' : '✓ Exercise logged');
+  } catch(e) {
+    showToast('Error updating exercise');
+    console.error('toggleExercise error:', e);
+  }
+}
+
+// Highlights (dashed lime outline, layered over the recovery-status fill color)
+// every muscle targeted by today's suggested exercises. Uses inline style so it
+// always wins over the plain stroke attribute renderMuscleMap sets for recovery
+// status — the two layers can coexist without one clobbering the other.
+function applyTargetHighlight(exercises) {
+  document.querySelectorAll('#muscle-front [data-target-highlight], #muscle-back [data-target-highlight]')
+    .forEach(el => {
+      el.removeAttribute('data-target-highlight');
+      el.style.stroke = '';
+      el.style.strokeWidth = '';
+      el.style.strokeDasharray = '';
+      el.style.filter = '';
+    });
+
+  if (!exercises || !exercises.length) return;
+
+  const targetCategories = new Set();
+  for (const ex of exercises) {
+    const cats = EXERCISE_MUSCLE_CATEGORIES[ex.name];
+    if (cats) cats.forEach(c => targetCategories.add(c));
+  }
+
+  for (const category of targetCategories) {
+    for (const id of (MUSCLE_ELEMENTS[category] || [])) {
+      const el = document.getElementById(id);
+      if (el) {
+        el.setAttribute('data-target-highlight', '1');
+        el.style.stroke = '#c8ff57';
+        el.style.strokeWidth = '4';
+        el.style.strokeDasharray = '3,2';
+        el.style.filter = 'drop-shadow(0 0 3px rgba(200,255,87,0.7))';
+      }
+    }
+  }
+}
+
+
 function renderWaterRing(oz) {
   const circ = 339.3;
   document.getElementById('water-oz-display').textContent = Math.round(oz);
