@@ -285,6 +285,9 @@ svg.ring-svg { transform: rotate(-90deg); }
 .fab { position: fixed; bottom: 28px; right: 28px; z-index: 400; padding: 14px 26px; background: var(--lime); color: var(--bg); border: none; border-radius: 50px; font-family: 'Bebas Neue', sans-serif; font-size: 1rem; letter-spacing: 2px; cursor: pointer; box-shadow: 0 6px 28px var(--lime-glow); transition: transform 0.2s, box-shadow 0.2s; }
 .fab:hover { transform: translateY(-2px); box-shadow: 0 10px 36px var(--lime-glow); }
 .toast { position: fixed; bottom: 90px; right: 28px; z-index: 900; padding: 12px 20px; border-radius: var(--radius-sm); background: var(--s1); border: 1px solid var(--lime); color: var(--lime); font-size: 0.8rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px; opacity: 0; transform: translateY(10px); transition: all 0.3s; pointer-events: none; }
+#debug-overlay { position: fixed; bottom: 0; left: 0; right: 0; max-height: 55vh; overflow-y: auto; background: rgba(20,0,0,0.97); color: #ff8080; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.5; padding: 40px 12px 16px; z-index: 99999; display: none; white-space: pre-wrap; word-break: break-word; border-top: 2px solid #ff3333; }
+#debug-overlay.visible { display: block; }
+#debug-overlay-close { position: fixed; top: 8px; right: 8px; background: #ff3333; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-weight: 800; font-family: 'Syne', sans-serif; font-size: 12px; z-index: 100000; }
 .toast.show { opacity: 1; transform: none; }
 .empty-state { text-align: center; padding: 32px; color: var(--muted); font-size: 0.78rem; font-family: 'JetBrains Mono', monospace; }
 
@@ -733,6 +736,7 @@ svg.ring-svg { transform: rotate(-90deg); }
 
 <button class="fab" id="fab-btn" onclick="openWorkoutModal(false)" style="display:none">+ LOG WORKOUT</button>
 <div class="toast" id="toast"></div>
+<div id="debug-overlay"><button id="debug-overlay-close" onclick="document.getElementById('debug-overlay').classList.remove('visible')">✕ Close</button><div id="debug-log"></div></div>
 
 <script>
 // ─────────────────────────────────────────────────────
@@ -752,6 +756,28 @@ let waterOz = 0;
 let allWorkouts = [];
 let currentFilter = 'all';
 let todaysPlan = null;
+
+// ─────────────────────────────────────────────────────
+// DEBUG OVERLAY (mobile-friendly — no DevTools needed)
+// Catches JS errors, unhandled promise rejections, and API
+// call results/failures, and shows them directly on-screen.
+// Registered early so it catches errors from later in this file.
+// ─────────────────────────────────────────────────────
+function debugLog(msg) {
+  const panel = document.getElementById('debug-overlay');
+  const log = document.getElementById('debug-log');
+  if (!panel || !log) return;
+  const time = new Date().toLocaleTimeString();
+  log.innerHTML += `[${time}] ${msg}\n\n`;
+  panel.classList.add('visible');
+  panel.scrollTop = panel.scrollHeight;
+}
+window.addEventListener('error', (e) => {
+  debugLog(`JS ERROR: ${e.message}\nFile: ${e.filename}:${e.lineno}:${e.colno}`);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  debugLog(`UNHANDLED PROMISE REJECTION: ${e.reason?.message || e.reason}`);
+});
 
 // ─────────────────────────────────────────────────────
 // MUSCLE MAP CONSTANTS (top-level, not inside any function)
@@ -916,10 +942,28 @@ document.addEventListener('keydown', e => {
 async function api(path, method = 'GET', body = null) {
   const opts = { method, headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` } };
   if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(`${API}${path}`, opts);
-  if (res.status === 401) { doLogout(); return null; }
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(`${API}${path}`, { ...opts, signal: controller.signal });
+    clearTimeout(timeoutId);
+    debugLog(`API ${method} ${path} -> ${res.status}`);
+    if (res.status === 401) { doLogout(); return null; }
+    if (!res.ok) {
+      const errText = await res.text();
+      debugLog(`API ERROR BODY (${path}): ${errText}`);
+      throw new Error(errText);
+    }
+    return res.json();
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      debugLog(`API TIMEOUT: ${method} ${path} took longer than 15s`);
+      throw new Error('Request timed out');
+    }
+    debugLog(`API FETCH FAILED: ${method} ${path}\n${err.message}`);
+    throw err;
+  }
 }
 
 // ─────────────────────────────────────────────────────
@@ -1068,56 +1112,4 @@ function renderMuscleMap() {
     const dotColor = m.color || '#22cc44';
     const status = m.pct >= 1 ? 'Ready' : `${Math.round(m.hrsLeft)}h left`;
     return `<div style="display:flex;align-items:center;gap:6px">
-      <div style="width:7px;height:7px;border-radius:50%;background:${dotColor};flex-shrink:0"></div>
-      <span style="font-size:0.6rem;color:var(--text);font-family:'JetBrains Mono',monospace">${m.label}</span>
-      <span style="font-size:0.58rem;color:var(--muted2);margin-left:auto;font-family:'JetBrains Mono',monospace;white-space:nowrap">${status}</span>
-    </div>`;
-  }).join('');
-}
-
-// ─────────────────────────────────────────────────────
-// SUGGESTED WORKOUT PLAN (exercise checklist + target highlight)
-// ─────────────────────────────────────────────────────
-async function loadTodaysPlan() {
-  const listEl = document.getElementById('suggested-plan-list');
-  try {
-    const data = await api(`/plan/suggested/${userId}?local_date=${localDateStr()}`);
-    todaysPlan = data;
-    renderSuggestedPlan(data);
-    applyTargetHighlight(data?.exercises || []);
-  } catch(e) {
-    if (listEl) listEl.innerHTML = '<div class="empty-state">Error loading plan</div>';
-    console.error('loadTodaysPlan error:', e);
-  }
-}
-
-function renderSuggestedPlan(data) {
-  const listEl = document.getElementById('suggested-plan-list');
-  const labelEl = document.getElementById('suggested-plan-label');
-  const titleEl = document.getElementById('today-schedule-title');
-  const metaEl = document.getElementById('today-schedule-meta');
-  if (!listEl || !labelEl) return;
-
-  if (!data || !data.exercises || !data.exercises.length) {
-    labelEl.textContent = 'Suggested Workout';
-    listEl.innerHTML = `<div class="empty-state">${data?.error || 'No plan data yet'}</div>`;
-    if (titleEl) titleEl.innerHTML = 'NO PLAN YET';
-    if (metaEl) metaEl.innerHTML = '';
-    return;
-  }
-
-  const dayLabel = data.plan_day?.label || data.suggested_day_key;
-  const variantTag = data.plan_day?.variant ? ` · Variant ${data.plan_day.variant}` : '';
-  labelEl.textContent = `Suggested: ${dayLabel}${variantTag}`;
-
-  // Today's Plan card (top of page) now mirrors this same suggested day —
-  // single source of truth instead of the old day-of-week schedule.
-  if (titleEl) titleEl.innerHTML = `<span>${dayLabel}</span>${variantTag}`;
-  if (metaEl) {
-    let tags = `<span class="eq-tag eq-gym">🏋 Gym Monster</span>`;
-    if (data.cardio && data.cardio.due) tags += `<span class="eq-tag eq-peloton">🚴 Cardio due</span>`;
-    metaEl.innerHTML = tags;
-  }
-  const wkEquipEl = document.getElementById('wk-equipment');
-  const wkFocusEl = document.getElementById('wk-focus');
-  if (wkEqui
+      <div style="width:7px;height:7px;border-radi
