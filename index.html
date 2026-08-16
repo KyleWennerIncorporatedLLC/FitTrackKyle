@@ -763,6 +763,1711 @@ let todaysPlan = null;
 // call results/failures, and shows them directly on-screen.
 // Registered early so it catches errors from later in this file.
 // ─────────────────────────────────────────────────────
+function debugLog(msg, autoShow = true) {
+  const panel = document.getElementById('debug-overlay');
+  const log = document.getElementById('debug-log');
+  if (!panel || !log) return;
+  const time = new Date().toLocaleTimeString();
+  log.innerHTML += `[${time}] ${msg}\n\n`;
+  if (autoShow) panel.classList.add('visible');
+  panel.scrollTop = panel.scrollHeight;
+}
+window.addEventListener('error', (e) => {
+  debugLog(`JS ERROR: ${e.message}\nFile: ${e.filename}:${e.lineno}:${e.colno}`);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  debugLog(`UNHANDLED PROMISE REJECTION: ${e.reason?.message || e.reason}`);
+});
+
+// ─────────────────────────────────────────────────────
+// MUSCLE MAP CONSTANTS (top-level, not inside any function)
+// ─────────────────────────────────────────────────────
+const MUSCLE_KEYWORDS = {
+  chest:        ['chest','benchpress','press','pec','push up','pushup','fly','flye'],
+  front_delt:   ['shoulder','ohp','overhead','lateral raise','front raise','military'],
+  rear_delt:    ['rear delt','face pull','reverse fly','rear shoulder','bent over raise','high pull'],
+  rotator_cuff: ['external rotation','rotator cuff','cuff'],
+  bicep:        ['bicep','curl','hammer curl','chin up','chinup', 'arm'],
+  tricep:       ['tricep','skull crusher','pushdown','dip','close grip','extension','arm'],
+  forearm:      ['forearm','wrist','grip','arm'],
+  trap:         ['trap','shrug','upright row','high pull'],
+  lat:          ['lat','pull up','pullup','pulldown','row','back','t-bar'],
+  lower_back:   ['lower back','deadlift','rdl','romanian','hyperextension','good morning','superman'],
+  abs:          ['abs','core','crunch','sit up','situp','plank','ab wheel','hollow','hanging leg','leg raise'],
+  oblique:      ['oblique','side plank','russian twist','woodchop','cable twist','core','side hover','pallof','tabletop','shoulder tap','hip drop'],
+  glute:        ['glute','hip thrust','bridge','rdl','deadlift','squat','lunge','step up'],
+  quad:         ['quad','squat','leg press','lunge','leg extension','front squat','goblet'],
+  hamstring:    ['hamstring','rdl','romanian','leg curl','deadlift','nordic','glute ham','squat','hip thrust','lunge'],
+  calf:         ['calf','calves','calf raise','standing raise','seated raise','squat'],
+};
+
+const RECOVERY_HOURS = {
+  chest: 72, front_delt: 48, rear_delt: 48, rotator_cuff: 48,
+  bicep: 36, tricep: 36, forearm: 24,
+  trap: 48, lat: 72, lower_back: 72,
+  abs: 24, oblique: 24,
+  glute: 72, quad: 72, hamstring: 72, calf: 48,
+};
+
+const MUSCLE_ELEMENTS = {
+  chest:        ['m-chest-l', 'm-chest-r'],
+  front_delt:   ['m-front-delt-l', 'm-front-delt-r'],
+  rear_delt:    ['m-rear-delt-l', 'm-rear-delt-r'],
+  // No dedicated rotator cuff path exists in this body map — it's anatomically
+  // tucked under the deltoid, so it shares the rear-delt shapes as the closest
+  // visual approximation. Tracked as its own entry (separate recovery timer +
+  // label) so it still shows correctly in the worked-muscle list.
+  rotator_cuff: ['m-rear-delt-l', 'm-rear-delt-r'],
+  bicep:        ['m-bicep-l', 'm-bicep-r'],
+  tricep:       ['m-tricep-l', 'm-tricep-r'],
+  forearm:      ['m-forearm-l', 'm-forearm-r', 'm-forearm-back-l', 'm-forearm-back-r'],
+  trap:         ['m-trap-l', 'm-trap-r', 'm-trap-back-l', 'm-trap-back-r'],
+  lat:          ['m-lat-l', 'm-lat-r'],
+  lower_back:   ['m-lower-back'],
+  abs:          ['m-abs-1l','m-abs-1r','m-abs-2l','m-abs-2r','m-abs-3l','m-abs-3r','m-abs-4l','m-abs-4r'],
+  oblique:      ['m-oblique-l', 'm-oblique-r'],
+  glute:        ['m-glute-l', 'm-glute-r'],
+  quad:         ['m-quad-l', 'm-quad-r'],
+  hamstring:    ['m-hamstring-l', 'm-hamstring-r'],
+  calf:         ['m-calf-l', 'm-calf-r', 'm-calf-back-l', 'm-calf-back-r'],
+};
+
+const MUSCLE_LABELS = {
+  chest: 'Chest', front_delt: 'Front Deltoids', rear_delt: 'Rear Deltoids', rotator_cuff: 'Rotator Cuff',
+  bicep: 'Biceps', tricep: 'Triceps', forearm: 'Forearms',
+  trap: 'Traps', lat: 'Lats / Back', lower_back: 'Lower Back',
+  abs: 'Abs', oblique: 'Obliques',
+  glute: 'Glutes', quad: 'Quads', hamstring: 'Hamstrings', calf: 'Calves',
+};
+
+// Exact exercise name -> muscle category keys, for the "today's target" highlight.
+// Unlike MUSCLE_KEYWORDS (which fuzzy-matches free-typed focus_area text), this is a
+// precise lookup against the exercises table seeded by plan_migration.sql — safe to
+// match exactly since both come from the same source.
+const EXERCISE_MUSCLE_CATEGORIES = {
+  'Standing Dual-Handle Chest Press': ['chest', 'front_delt', 'tricep'],
+  'Standing Alternating Chest Fly': ['chest', 'oblique'],
+  'Barbell Bench Press': ['chest', 'tricep', 'front_delt'],
+  'Standing Tricep Rope Pushdown': ['tricep'],
+  'Plank Jacks': ['abs', 'front_delt'],
+  'Alternating Cross Crunch': ['oblique', 'abs'],
+  'Standing Dual-Handle High-to-Low Chest Press': ['chest', 'tricep', 'abs'],
+  'Single-Arm Chest Press': ['chest', 'abs'],
+  'Incline Dual-Handle Chest Press': ['chest', 'front_delt'],
+  'Standing Horizontal Woodchops': ['oblique', 'front_delt', 'glute'],
+  'Kneeling Lat Pulldown': ['lat', 'bicep', 'rear_delt'],
+  'Bent-Over Alternating Row': ['lat', 'trap', 'bicep'],
+  'Seated Cable Row': ['lat', 'trap', 'bicep'],
+  'Standing Single-Arm Biceps Curl': ['bicep'],
+  'Superman T (Lying)': ['lower_back', 'glute', 'rear_delt'],
+  'Side Hover': ['oblique', 'glute', 'rear_delt'],
+  'Upper Body Rowing': ['lat', 'rear_delt', 'bicep'],
+  'Single-Arm High Pull': ['rear_delt', 'trap'],
+  'Chest-Supported Row': ['lat', 'rear_delt'],
+  'Standing Cable External Rotation': ['rotator_cuff'],
+  'Bodyweight Squat': ['quad', 'glute', 'hamstring'],
+  'Belted Calf Raise': ['calf'],
+  'Hip Thrust': ['glute', 'hamstring'],
+  'Bulgarian Split Squat': ['quad', 'glute'],
+  'Bodyweight Straight Leg Raise': ['abs'],
+  'Tabletop Shoulder Tap': ['oblique', 'front_delt'],
+  'Barbell Squat': ['quad', 'glute', 'hamstring'],
+  'Dual-Handle Staggered Deadlift': ['hamstring', 'glute', 'lower_back'],
+  'Dual-Handle Front Squat': ['quad', 'glute', 'abs'],
+  'Barbell Alternating Reverse Lunge': ['glute', 'quad', 'hamstring'],
+  'Pallof Press': ['oblique'],
+  'Standing Dual-Handle Overhead Press': ['front_delt', 'rear_delt', 'tricep'],
+  'Seated Dual-Handle Shoulder Press': ['front_delt', 'tricep'],
+  'Seated Tricep Extension': ['tricep'],
+  'Side Hover Rotation': ['oblique'],
+  'Plank with Hip Drop': ['oblique', 'glute'],
+  'Standing Lateral Raise': ['front_delt'],
+  'Standing Front Raise': ['front_delt'],
+  'Seated Alternating Biceps Curl': ['bicep'],
+  'Standing Low-to-High Cable Fly': ['chest'],
+  'Seated Cable Chest Fly': ['chest'],
+  'Standing Cable Crossover': ['chest'],
+  'Decline Dual-Handle Chest Press': ['chest', 'tricep'],
+  'Kneeling Chest Press': ['chest', 'tricep', 'front_delt'],
+  'Straight-Arm Lat Pulldown': ['lat'],
+  'Standing Wide-Grip Cable Row': ['lat', 'trap', 'rear_delt'],
+  'Single-Arm Lat Pulldown': ['lat', 'bicep'],
+  'Seated Reverse-Grip Cable Row': ['lat', 'bicep'],
+  'Standing Cable Upright Row': ['trap', 'front_delt'],
+  'Standing Hammer Curl (Rope)': ['bicep', 'forearm'],
+  'Standing Cable Face Pull': ['rear_delt', 'trap'],
+  'Standing Cable Curl (Rope, Neutral Grip)': ['bicep', 'forearm'],
+  'Dual-Handle Box Squat': ['quad', 'glute', 'hamstring'],
+  'Bench-Supported Cable Hip Thrust': ['glute', 'hamstring'],
+  'Dual-Handle Sumo Squat': ['quad', 'glute'],
+  'Standing Cable Hip Extension': ['glute', 'hamstring'],
+  'Standing Cable Hamstring Curl': ['hamstring'],
+  'Dual-Handle Assisted Split Squat': ['quad', 'glute'],
+  'Dual-Handle Reverse Lunge': ['glute', 'quad', 'hamstring'],
+};
+
+// ─────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  await delay(1300);
+  document.getElementById('loader').classList.add('hidden');
+  if (token && userId) {
+    showApp();
+    await loadDashboard();
+  } else {
+    document.getElementById('login-screen').classList.remove('hidden');
+  }
+});
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ─────────────────────────────────────────────────────
+// AUTH
+// ─────────────────────────────────────────────────────
+async function doLogin() {
+  const username = document.getElementById('login-user').value.trim();
+  const password = document.getElementById('login-pass').value;
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (!username || !password) { errEl.textContent = 'Please enter username and password'; return; }
+  try {
+    const res = await fetch(`${API}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    if (!res.ok) { errEl.textContent = 'Invalid credentials'; return; }
+    const data = await res.json();
+    localStorage.setItem('ft_token', data.token);
+    localStorage.setItem('ft_user_id', data.user_id);
+    localStorage.setItem('ft_name', data.name);
+    token = data.token; userId = data.user_id; userName = data.name;
+    document.getElementById('login-screen').classList.add('hidden');
+    showApp();
+    await loadDashboard();
+  } catch(e) { errEl.textContent = 'Could not reach server'; }
+}
+
+function doLogout() { localStorage.clear(); location.reload(); }
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.getElementById('login-screen') &&
+      !document.getElementById('login-screen').classList.contains('hidden')) doLogin();
+});
+
+// ─────────────────────────────────────────────────────
+// API HELPER
+// ─────────────────────────────────────────────────────
+async function api(path, method = 'GET', body = null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` } };
+  if (body) opts.body = JSON.stringify(body);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(`${API}${path}`, { ...opts, signal: controller.signal });
+    clearTimeout(timeoutId);
+    debugLog(`API ${method} ${path} -> ${res.status}`, !res.ok);
+    if (res.status === 401) { doLogout(); return null; }
+    if (!res.ok) {
+      const errText = await res.text();
+      debugLog(`API ERROR BODY (${path}): ${errText}`);
+      throw new Error(errText);
+    }
+    return res.json();
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      debugLog(`API TIMEOUT: ${method} ${path} took longer than 15s`);
+      throw new Error('Request timed out');
+    }
+    debugLog(`API FETCH FAILED: ${method} ${path}\n${err.message}`);
+    throw err;
+  }
+}
+
+// ─────────────────────────────────────────────────────
+// SHOW APP
+// ─────────────────────────────────────────────────────
+function showApp() {
+  document.getElementById('main-nav').style.display = 'flex';
+  document.getElementById('fab-btn').style.display = 'block';
+  document.getElementById('tab-today').style.display = 'block';
+  document.getElementById('nav-username').textContent = userName;
+  document.getElementById('nav-avatar').textContent = (userName || 'U')[0].toUpperCase();
+  renderTodayStatic();
+}
+
+// ─────────────────────────────────────────────────────
+// LOAD DASHBOARD
+// ─────────────────────────────────────────────────────
+async function loadDashboard() {
+  try {
+    dashData = await api(`/dashboard/${userId}`);
+    if (!dashData) return;
+    renderTodayDynamic();
+    renderMuscleMap();
+    await loadTodaysPlan();
+    renderDashboard();
+    renderHeatmap();
+    renderWorkoutsTable();
+    renderWeightChart();
+    renderLeaderboard();
+    renderRings();
+    renderBadges();
+    renderBodyCompTable();
+  } catch(e) {
+    console.error('Dashboard load error:', e);
+    showToast('Error loading data — check API connection');
+  }
+}
+
+// ─────────────────────────────────────────────────────
+// TODAY TAB
+// ─────────────────────────────────────────────────────
+function renderTodayStatic() {
+  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const today = new Date();
+  document.getElementById('today-day-label').textContent =
+    `${days[today.getDay()]} · ${today.toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' })}`;
+  renderVitamins([]);
+  renderWaterRing(0);
+}
+
+function renderTodayDynamic() {
+  if (!dashData) return;
+  // NOTE: today-schedule-title / today-schedule-meta / wk-equipment / wk-focus
+  // used to be driven by workout_schedule (day-of-week) here. That's now handled
+  // by renderSuggestedPlan() instead, sourced from /plan/suggested — the actual
+  // history-based recommendation, not a fixed calendar slot. Leaving both would
+  // show two different, disagreeing "today's workout" values on the same page.
+  waterOz = dashData.water?.today_oz || 0;
+  renderWaterRing(waterOz);
+  renderVitamins(dashData.vitamins || []);
+  const steps = dashData.steps;
+  const stepGoal = 10000;
+  if (steps) {
+    document.getElementById('stat-steps').textContent = steps.steps.toLocaleString();
+    document.getElementById('stat-steps-sub').textContent = `/ ${stepGoal.toLocaleString()} goal`;
+    document.getElementById('steps-progress-bar').style.width = `${Math.min(steps.steps / stepGoal * 100, 100)}%`;
+    document.getElementById('stat-distance').textContent = steps.distance_km ? `${parseFloat(steps.distance_km).toFixed(1)} km` : '— km';
+    document.getElementById('stat-active-cal').textContent = steps.active_calories ? `${steps.active_calories} cal active` : '— cal active';
+  } else {
+    document.getElementById('stat-steps').textContent = '—';
+  }
+}
+
+// ─────────────────────────────────────────────────────
+// MUSCLE MAP FUNCTIONS (top-level)
+// ─────────────────────────────────────────────────────
+function getRecoveryColor(hoursAgo, recoveryHours) {
+  const pct = Math.min(hoursAgo / recoveryHours, 1);
+  if (pct < 0.25) return '#ff3333';
+  if (pct < 0.50) return '#ff7700';
+  if (pct < 0.75) return '#ccbb00';
+  if (pct < 1.00) return '#88cc00';
+  return null;
+}
+
+function detectMuscles(focusArea) {
+  if (!focusArea) return [];
+  const text = focusArea.toLowerCase();
+  const matched = [];
+  for (const [muscle, keywords] of Object.entries(MUSCLE_KEYWORDS)) {
+    if (keywords.some(kw => text.includes(kw))) matched.push(muscle);
+  }
+  return matched;
+}
+
+function renderMuscleMap() {
+  const gymWorkouts = dashData?.recent_gym_workouts || [];
+  const muscleLastWorked = {};
+  for (const workout of gymWorkouts) {
+    const muscles = detectMuscles(workout.focus_area);
+    const workedAt = new Date(workout.logged_at);
+    for (const muscle of muscles) {
+      if (!muscleLastWorked[muscle] || workedAt > muscleLastWorked[muscle]) {
+        muscleLastWorked[muscle] = workedAt;
+      }
+    }
+  }
+  const now = new Date();
+  const workedList = [];
+  // Reset all
+  for (const ids of Object.values(MUSCLE_ELEMENTS)) {
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (el) { el.setAttribute('fill', 'var(--s3)'); el.setAttribute('stroke', 'var(--border2)'); }
+    }
+  }
+  // Apply colors
+  for (const [muscle, lastWorked] of Object.entries(muscleLastWorked)) {
+    const hoursAgo = (now - lastWorked) / 3600000;
+    const recoveryHours = RECOVERY_HOURS[muscle] || 48;
+    const color = getRecoveryColor(hoursAgo, recoveryHours);
+    const pct = Math.min(hoursAgo / recoveryHours, 1);
+    for (const id of (MUSCLE_ELEMENTS[muscle] || [])) {
+      const el = document.getElementById(id);
+      if (el) {
+        if (color) {
+          el.setAttribute('fill', color);
+          el.setAttribute('fill-opacity', '0.85');
+          el.setAttribute('stroke', color);
+        } else {
+          el.setAttribute('fill', 'rgba(34,204,68,0.18)');
+          el.setAttribute('stroke', 'rgba(34,204,68,0.4)');
+        }
+      }
+    }
+    const hrsLeft = Math.max(recoveryHours - hoursAgo, 0);
+    workedList.push({ muscle, label: MUSCLE_LABELS[muscle] || muscle, hoursAgo, hrsLeft, pct, color });
+  }
+  workedList.sort((a, b) => a.hoursAgo - b.hoursAgo);
+  const listEl = document.getElementById('muscle-worked-list');
+  if (!workedList.length) {
+    listEl.innerHTML = `<div style="font-size:0.62rem;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:4px">No recent gym sessions</div>`;
+    return;
+  }
+  listEl.innerHTML = workedList.map(m => {
+    const dotColor = m.color || '#22cc44';
+    const status = m.pct >= 1 ? 'Ready' : `${Math.round(m.hrsLeft)}h left`;
+    return `<div style="display:flex;align-items:center;gap:6px">
+      <div style="width:7px;height:7px;border-radius:50%;background:${dotColor};flex-shrink:0"></div>
+      <span style="font-size:0.6rem;color:var(--text);font-family:'JetBrains Mono',monospace">${m.label}</span>
+      <span style="font-size:0.58rem;color:var(--muted2);margin-left:auto;font-family:'JetBrains Mono',monospace;white-space:nowrap">${status}</span>
+    </div>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────────────────
+// SUGGESTED WORKOUT PLAN (exercise checklist + target highlight)
+// ─────────────────────────────────────────────────────
+async function loadTodaysPlan() {
+  const listEl = document.getElementById('suggested-plan-list');
+  try {
+    const data = await api(`/plan/suggested/${userId}`);
+    todaysPlan = data;
+    renderSuggestedPlan(data);
+    applyTargetHighlight(data?.exercises || []);
+  } catch(e) {
+    if (listEl) listEl.innerHTML = '<div class="empty-state">Error loading plan</div>';
+    console.error('loadTodaysPlan error:', e);
+  }
+}
+
+function renderSuggestedPlan(data) {
+  const listEl = document.getElementById('suggested-plan-list');
+  const labelEl = document.getElementById('suggested-plan-label');
+  const titleEl = document.getElementById('today-schedule-title');
+  const metaEl = document.getElementById('today-schedule-meta');
+  if (!listEl || !labelEl) return;
+
+  if (!data || !data.exercises || !data.exercises.length) {
+    labelEl.textContent = 'Suggested Workout';
+    listEl.innerHTML = `<div class="empty-state">${data?.error || 'No plan data yet'}</div>`;
+    if (titleEl) titleEl.innerHTML = 'NO PLAN YET';
+    if (metaEl) metaEl.innerHTML = '';
+    return;
+  }
+
+  const dayLabel = data.plan_day?.label || data.suggested_day_key;
+  const variantTag = data.plan_day?.variant ? ` · Variant ${data.plan_day.variant}` : '';
+  labelEl.textContent = `Suggested: ${dayLabel}${variantTag}`;
+
+  // Today's Plan card (top of page) now mirrors this same suggested day —
+  // single source of truth instead of the old day-of-week schedule.
+  if (titleEl) titleEl.innerHTML = `<span>${dayLabel}</span>${variantTag}`;
+  if (metaEl) {
+    let tags = `<span class="eq-tag eq-gym">🏋 Gym Monster</span>`;
+    if (data.cardio && data.cardio.due) tags += `<span class="eq-tag eq-peloton">🚴 Cardio due</span>`;
+    metaEl.innerHTML = tags;
+  }
+  const wkEquipEl = document.getElementById('wk-equipment');
+  const wkFocusEl = document.getElementById('wk-focus');
+  if (wkEquipEl) wkEquipEl.value = 'gym_monster';
+  if (wkFocusEl) wkFocusEl.value = dayLabel;
+
+  const cardioBanner = (data.cardio && data.cardio.due)
+    ? `<div class="cardio-due-banner">🚴 Cardio due — ${data.cardio.days_since ?? 'no'} day(s) since your last Peloton ride</div>`
+    : '';
+
+  const stretchBanner = data.plan_day?.pre_stretch
+    ? `<div class="pre-stretch-banner">🧘 Pre-session stretch: <strong>${data.plan_day.pre_stretch}</strong> <span class="pre-stretch-note">(untimed, doesn't count toward the session)</span></div>`
+    : '';
+
+  listEl.innerHTML = stretchBanner + data.exercises.map(ex => `
+    <div class="plan-exercise-row ${ex.completed ? 'completed' : ''}">
+      <div class="plan-exercise-checkbox ${ex.completed ? 'checked' : ''}"
+           onclick="toggleExercise(${ex.plan_exercise_id}, ${ex.completed})">${ex.completed ? '✓' : ''}</div>
+      <div class="plan-exercise-info">
+        <div class="plan-exercise-name ${ex.completed ? 'completed' : ''}">${ex.name}</div>
+        <div class="plan-exercise-meta">${ex.muscle_groups} · ${ex.sets_reps}</div>
+      </div>
+      <span class="plan-exercise-block-tag block-${ex.block}">${ex.block.replace('_', ' ')}</span>
+    </div>
+  `).join('') + cardioBanner;
+}
+
+async function toggleExercise(planExerciseId, isCompleted) {
+  try {
+    if (isCompleted) {
+      if (!todaysPlan?.workout_id) return;
+      await api(`/plan/exercises/${todaysPlan.workout_id}/${planExerciseId}`, 'DELETE');
+    } else {
+      await api('/plan/exercises/complete', 'POST', { plan_exercise_id: planExerciseId });
+    }
+    await loadTodaysPlan();
+    showToast(isCompleted ? 'Unchecked' : '✓ Exercise logged');
+  } catch(e) {
+    showToast('Error updating exercise');
+    console.error('toggleExercise error:', e);
+  }
+}
+
+// Highlights (dashed lime outline, layered over the recovery-status fill color)
+// every muscle targeted by today's suggested exercises. Uses inline style so it
+// always wins over the plain stroke attribute renderMuscleMap sets for recovery
+// status — the two layers can coexist without one clobbering the other.
+function applyTargetHighlight(exercises) {
+  document.querySelectorAll('#muscle-front [data-target-highlight], #muscle-back [data-target-highlight]')
+    .forEach(el => {
+      el.removeAttribute('data-target-highlight');
+      el.style.stroke = '';
+      el.style.strokeWidth = '';
+      el.style.strokeDasharray = '';
+      el.style.filter = '';
+    });
+
+  if (!exercises || !exercises.length) return;
+
+  const targetCategories = new Set();
+  for (const ex of exercises) {
+    const cats = EXERCISE_MUSCLE_CATEGORIES[ex.name];
+    if (cats) cats.forEach(c => targetCategories.add(c));
+  }
+
+  for (const category of targetCategories) {
+    for (const id of (MUSCLE_ELEMENTS[category] || [])) {
+      const el = document.getElementById(id);
+      if (el) {
+        el.setAttribute('data-target-highlight', '1');
+        el.style.stroke = '#c8ff57';
+        el.style.strokeWidth = '4';
+        el.style.strokeDasharray = '3,2';
+        el.style.filter = 'drop-shadow(0 0 3px rgba(200,255,87,0.7))';
+      }
+    }
+  }
+}
+
+
+function renderWaterRing(oz) {
+  const circ = 339.3;
+  document.getElementById('water-oz-display').textContent = Math.round(oz);
+  document.getElementById('water-ring-circle').style.strokeDashoffset = circ - (circ * Math.min(oz / 100, 1));
+}
+
+function renderVitamins(vitamins) {
+  const el = document.getElementById('vitamin-list');
+  if (!vitamins.length) { el.innerHTML = '<div class="empty-state">No vitamins configured</div>'; return; }
+  el.innerHTML = vitamins.map(v => `
+    <div class="vitamin-row ${v.taken ? 'taken' : ''}" onclick="toggleVitamin('${v.vitamin_name}', ${v.taken})">
+      <div><div class="vitamin-name">${v.vitamin_name}</div><div class="vitamin-schedule">${v.schedule}</div></div>
+      <div class="vitamin-check">${v.taken ? '✓' : ''}</div>
+    </div>`).join('');
+}
+
+// ─────────────────────────────────────────────────────
+// DASHBOARD TAB
+// ─────────────────────────────────────────────────────
+function renderDashboard() {
+  if (!dashData) return;
+  const w = dashData.weight;
+  if (w?.latest) {
+    document.getElementById('stat-weight').textContent = parseFloat(w.latest.weight_lbs).toFixed(1);
+    document.getElementById('stat-weight-sub').textContent = w.latest.source === 'auto' ? 'lbs · auto-synced via scale' : 'lbs';
+    if (w.delta_30_day !== null) {
+      const deltaEl = document.getElementById('stat-weight-delta');
+      deltaEl.style.display = 'inline-flex';
+      const d = w.delta_30_day;
+      deltaEl.className = `stat-delta ${d < 0 ? 'delta-good' : 'delta-bad'}`;
+      deltaEl.textContent = `${d > 0 ? '+' : ''}${d} lbs this month`;
+    }
+  }
+  const streak = dashData.streak || 0;
+  document.getElementById('stat-streak').textContent = streak;
+  document.getElementById('streak-badge-count').textContent = `${streak} DAY STREAK`;
+  const wk = dashData.week;
+  document.getElementById('stat-points').textContent = wk.points || 0;
+  document.getElementById('stat-points-sub').textContent = `/ ${wk.points_goal} pt goal · ${wk.workouts?.length || 0} workouts`;
+  const ptLeft = wk.points_goal - (wk.points || 0);
+  document.getElementById('stat-points-delta').textContent = ptLeft > 0 ? `${ptLeft} pts to goal` : '🎯 Goal reached!';
+}
+
+function renderLeaderboard() {
+  const lb = dashData?.leaderboard || [];
+  const wk = dashData?.week;
+  const el = document.getElementById('leaderboard-content');
+  if (!lb.length) { el.innerHTML = '<div class="empty-state" style="padding:12px">No data yet</div>'; return; }
+  const goal = wk?.points_goal || 1000;
+  const html = lb.map((entry, i) => {
+    const isKyle = entry.name === userName;
+    const pct = Math.min((entry.points / goal) * 100, 100);
+    return `<div class="competitor">
+      <div class="competitor-header">
+        <span class="competitor-name" style="color:${isKyle ? 'var(--blue)' : 'var(--pink)'}">${entry.name.toUpperCase()}</span>
+        <span class="competitor-pts">${entry.points} pts</span>
+      </div>
+      <div class="prog-bar"><div class="prog-fill ${isKyle ? 'fill-kyle' : 'fill-haley'}" style="width:${pct}%"></div></div>
+    </div>${i < lb.length - 1 ? '<div class="vs-divider">VS</div>' : ''}`;
+  }).join('');
+  const others = lb.filter(e => e.name !== userName);
+  let note = '';
+  if (others.length) {
+    const diff = (lb.find(e => e.name === userName)?.points || 0) - others[0].points;
+    note = diff >= 0 ? `You're ahead by ${diff} pts. Keep it up.` : `${others[0].name} leads by ${Math.abs(diff)} pts. One session closes the gap.`;
+  }
+  el.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:end"><div>${html}</div>${note ? `<div class="vs-note" style="border:none;padding:0;margin:0;text-align:left;font-size:0.72rem">${note}</div>` : ''}</div>`;
+}
+
+function renderRings() {
+  const wk = dashData?.week;
+  if (!wk) return;
+  const allW = wk.workouts || [];
+  const cardioCount = allW.filter(w => w.equipment === 'peloton' || w.equipment === 'walking').length;
+  const strengthCount = allW.filter(w => w.equipment === 'gym_monster' || w.equipment === 'both').length;
+  const rings = [
+    { label: `Cardio\n${cardioCount}/${wk.cardio_goal}`, pct: Math.min(cardioCount / wk.cardio_goal, 1), color: 'var(--peloton)' },
+    { label: `Strength\n${strengthCount}/${wk.strength_goal}`, pct: Math.min(strengthCount / wk.strength_goal, 1), color: 'var(--gym)' },
+    { label: `Points\n${wk.points}/${wk.points_goal}`, pct: Math.min(wk.points / wk.points_goal, 1), color: 'var(--lime)' },
+  ];
+  const circ = 163.4;
+  document.getElementById('rings-row').innerHTML = rings.map(r => `
+    <div class="ring-wrap">
+      <svg class="ring-svg" width="62" height="62" viewBox="0 0 62 62">
+        <circle cx="31" cy="31" r="26" fill="none" stroke="var(--s3)" stroke-width="7"/>
+        <circle cx="31" cy="31" r="26" fill="none" stroke="${r.color}" stroke-width="7" stroke-dasharray="${circ}" stroke-dashoffset="${circ - circ * r.pct}" stroke-linecap="round"/>
+      </svg>
+      <div class="ring-label">${r.label.replace('\n','<br>')}</div>
+    </div>`).join('');
+}
+
+function renderBadges() {
+  const streak = dashData?.streak || 0;
+  const workouts = dashData?.recent_workouts || [];
+  const hasWeight = !!dashData?.weight?.latest;
+  const badges = [
+    { icon: '💪', label: 'First Rep', earned: workouts.length > 0 },
+    { icon: '🔥', label: 'Week Blaze', earned: streak >= 7 },
+    { icon: '🚴', label: 'Rider', earned: workouts.filter(w => w.equipment === 'peloton').length >= 10 },
+    { icon: '⚖️', label: 'Weighed In', earned: hasWeight },
+    { icon: '⚡', label: '30 Streak', earned: streak >= 30 },
+    { icon: '🏆', label: 'Century', earned: workouts.length >= 100 },
+  ];
+  document.getElementById('badges-grid').innerHTML = badges.map(b =>
+    `<div class="badge-item ${b.earned ? 'earned' : 'locked'}" title="${b.label}">${b.icon}<span class="badge-label">${b.label}</span></div>`
+  ).join('');
+}
+
+// ─────────────────────────────────────────────────────
+// HEATMAP
+// ─────────────────────────────────────────────────────
+function renderHeatmap() {
+  const heatmap = dashData?.heatmap || [];
+  const lookup = {};
+  heatmap.forEach(row => { lookup[row.workout_date] = row.equipment_used; });
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayStr = dateStr(today);
+  const start = new Date(today); start.setDate(start.getDate() - 59);
+  while (start.getDay() !== 0) start.setDate(start.getDate() - 1);
+  const grid = document.getElementById('heatmap-grid');
+  grid.innerHTML = '';
+  let d = new Date(start);
+  while (d <= today || d.getDay() !== 0) {
+    const week = document.createElement('div');
+    week.className = 'heatmap-week';
+    for (let i = 0; i < 7; i++) {
+      const cell = document.createElement('div');
+      const ds = dateStr(d);
+      const dayNum = d.getDate();
+      if (d > today || d < new Date(today.getTime() - 59 * 86400000)) {
+        cell.className = 'heatmap-cell empty';
+      } else {
+        const eq = lookup[ds];
+        let cls = 'heatmap-cell';
+        if (eq) {
+          if (eq.includes('peloton') && eq.includes('gym_monster')) cls += ' both';
+          else if (eq.includes('peloton')) cls += ' peloton';
+          else if (eq.includes('gym_monster')) cls += ' gym_monster';
+          else if (eq.includes('walking')) cls += ' walking';
+        }
+        if (ds === todayStr) cls += ' today';
+        cell.className = cls;
+        cell.title = ds + (eq ? ` · ${eq.replace(',', ' + ')}` : ' · Rest');
+        cell.innerHTML = `<div class="heatmap-cell-inner">${dayNum}</div>`;
+      }
+      week.appendChild(cell);
+      d.setDate(d.getDate() + 1);
+    }
+    grid.appendChild(week);
+    if (d > today && d.getDay() === 0) break;
+  }
+}
+
+// ─────────────────────────────────────────────────────
+// WORKOUTS TABLE
+// ─────────────────────────────────────────────────────
+function renderWorkoutsTable() {
+  const workouts = dashData?.recent_workouts || [];
+  allWorkouts = workouts;
+  renderWorkoutRows('workouts-tbody', workouts);
+}
+
+function renderWorkoutRows(tbodyId, workouts) {
+  const tbody = document.getElementById(tbodyId);
+  if (!workouts.length) { tbody.innerHTML = `<tr><td colspan="9" class="empty-state">No workouts logged yet</td></tr>`; return; }
+  tbody.innerHTML = workouts.map(w => {
+    const dots = [1,2,3,4,5].map(i => `<div class="intensity-dot ${i <= (w.intensity||0) ? 'filled' : ''}"></div>`).join('');
+    const eqTag = w.equipment === 'peloton'
+      ? `<span class="eq-tag eq-peloton">🚴 Peloton</span>`
+      : w.equipment === 'walking'
+      ? `<span class="eq-tag" style="background:rgba(80,200,120,0.12);color:#50c878;border:1px solid rgba(80,200,120,0.3)">🚶 Walking</span>`
+      : `<span class="eq-tag eq-gym">🏋 Gym Monster</span>`;
+    const src = w.source !== 'manual' ? `<span class="source-tag source-auto">${w.source}</span>` : `<span class="source-tag source-manual">manual</span>`;
+    return `<tr>
+      <td class="workout-date">${fmtDate(w.logged_at)}</td>
+      <td>${eqTag}</td>
+      <td class="workout-focus">${w.focus_area || '—'}</td>
+      <td class="workout-duration">${w.duration_mins ? w.duration_mins + ' min' : '—'}</td>
+      <td class="workout-duration">${w.calories ? w.calories + ' cal' : '—'}</td>
+      <td class="workout-duration">${w.avg_heart_rate ? w.avg_heart_rate + ' bpm' : '—'}</td>
+      <td><div class="intensity-dots">${dots}</div></td>
+      <td class="workout-pts">${w.points ? '+' + w.points : '—'}</td>
+      <td>${src}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────────────────
+// WEIGHT CHART
+// ─────────────────────────────────────────────────────
+function renderWeightChart() {
+  const trend = (dashData?.weight?.trend || []).slice().reverse();
+  const wrap = document.getElementById('weight-chart-wrap');
+  const entriesEl = document.getElementById('weight-entries');
+  if (trend.length < 2) {
+    wrap.innerHTML = '<div class="chart-empty">Need 2+ weight entries for chart</div>';
+  } else {
+    const vals = trend.map(t => parseFloat(t.weight_lbs));
+    const minV = Math.min(...vals) - 2, maxV = Math.max(...vals) + 2;
+    const W = 240, H = 80;
+    const pts = trend.map((t, i) => ({
+      x: (i / (trend.length - 1)) * W,
+      y: H - ((parseFloat(t.weight_lbs) - minV) / (maxV - minV)) * H
+    }));
+    const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    wrap.innerHTML = `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <defs><linearGradient id="wg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--blue)" stop-opacity="0.25"/><stop offset="100%" stop-color="var(--blue)" stop-opacity="0"/></linearGradient></defs>
+      <path d="${pathD} L${W},${H} L0,${H} Z" fill="url(#wg)"/>
+      <path d="${pathD}" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      ${pts.map((p,i) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${i === pts.length-1 ? 4 : 2.5}" fill="var(--blue)" ${i === pts.length-1 ? 'stroke="var(--bg)" stroke-width="2"' : ''}/>`).join('')}
+    </svg>`;
+  }
+  const entries = (dashData?.weight?.trend || []).slice(0, 4);
+  if (!entries.length) { entriesEl.innerHTML = ''; return; }
+  entriesEl.innerHTML = entries.map((e, i) => {
+    const next = entries[i + 1];
+    const delta = next ? parseFloat(e.weight_lbs) - parseFloat(next.weight_lbs) : null;
+    const deltaHtml = delta !== null ? `<span class="${delta <= 0 ? 'weight-delta-down' : 'weight-delta-up'}">${delta <= 0 ? '↓' : '↑'} ${Math.abs(delta).toFixed(1)}</span>` : '';
+    const autoPill = e.source === 'auto' ? '<span class="auto-pill">AUTO</span>' : '';
+    return `<div class="weight-entry"><span class="weight-entry-date">${fmtDate(e.logged_at)}</span><span class="weight-entry-val">${parseFloat(e.weight_lbs).toFixed(1)} lbs${autoPill}</span>${deltaHtml}</div>`;
+  }).join('');
+}
+
+async function renderBodyCompTable() {
+  const tbody = document.getElementById('body-comp-tbody');
+  try {
+    const entries = await api(`/weight/history/week/${userId}`);
+    if (!entries || !entries.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No data this week</td></tr>'; return; }
+    const hasComp = entries.some(e => e.muscle_mass_lbs || e.fat_ratio_pct || e.fat_mass_lbs);
+    if (!hasComp) { tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No body composition data yet</td></tr>'; return; }
+    const fmt = (val, decimals = 1, unit = 'lbs') => val !== null && val !== undefined ? `${parseFloat(val).toFixed(decimals)} ${unit}` : '<span style="color:var(--muted)">—</span>';
+    tbody.innerHTML = entries.map(e => `<tr>
+      <td class="workout-date">${fmtDate(e.logged_at)}${e.source === 'auto' ? '<span class="auto-pill">AUTO</span>' : ''}</td>
+      <td class="workout-focus">${fmt(e.weight_lbs)}</td>
+      <td style="color:var(--orange);font-family:'JetBrains Mono',monospace;font-size:0.72rem">${e.fat_ratio_pct !== null && e.fat_ratio_pct !== undefined ? parseFloat(e.fat_ratio_pct).toFixed(1) + '%' : '<span style="color:var(--muted)">—</span>'}</td>
+      <td style="color:var(--blue);font-family:'JetBrains Mono',monospace;font-size:0.72rem">${fmt(e.muscle_mass_lbs)}</td>
+      <td style="font-family:'JetBrains Mono',monospace;font-size:0.72rem">${fmt(e.fat_mass_lbs)}</td>
+      <td style="color:var(--lime);font-family:'JetBrains Mono',monospace;font-size:0.72rem">${fmt(e.fat_free_mass_lbs)}</td>
+      <td style="color:var(--muted2);font-family:'JetBrains Mono',monospace;font-size:0.72rem">${fmt(e.bone_mass_lbs)}</td>
+    </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Error loading data</td></tr>';
+  }
+}
+
+// ─────────────────────────────────────────────────────
+// HISTORY TAB
+// ─────────────────────────────────────────────────────
+async function loadHistory() {
+  try {
+    const data = await api(`/workouts/${userId}?limit=50`);
+    allWorkouts = data || [];
+    renderHistoryTable(allWorkouts);
+  } catch(e) { console.error('History load error:', e); }
+}
+
+function renderHistoryTable(workouts) {
+  const filtered = currentFilter === 'all' ? workouts : workouts.filter(w => w.equipment === currentFilter);
+  const tbody = document.getElementById('history-tbody');
+  if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="9" class="empty-state">No workouts found</td></tr>`; return; }
+  tbody.innerHTML = filtered.map(w => {
+    const dots = [1,2,3,4,5].map(i => `<div class="intensity-dot ${i <= (w.intensity||0) ? 'filled' : ''}"></div>`).join('');
+    const eqTag = w.equipment === 'peloton'
+      ? `<span class="eq-tag eq-peloton">🚴 Peloton</span>`
+      : w.equipment === 'walking'
+      ? `<span class="eq-tag" style="background:rgba(80,200,120,0.12);color:#50c878;border:1px solid rgba(80,200,120,0.3)">🚶 Walking</span>`
+      : `<span class="eq-tag eq-gym">🏋 Gym Monster</span>`;
+    const src = w.source !== 'manual' ? `<span class="source-tag source-auto">${w.source}</span>` : `<span class="source-tag source-manual">manual</span>`;
+    return `<tr>
+      <td class="workout-date">${fmtDate(w.logged_at)}</td><td>${eqTag}</td>
+      <td class="workout-focus">${w.focus_area || '—'}</td>
+      <td class="workout-duration">${w.duration_mins ? w.duration_mins + ' min' : '—'}</td>
+      <td class="workout-duration">${w.calories ? w.calories + ' cal' : '—'}</td>
+      <td class="workout-duration">${w.avg_heart_rate ? w.avg_heart_rate + ' bpm' : '—'}</td>
+      <td><div class="intensity-dots">${dots}</div></td>
+      <td class="workout-pts">${w.points ? '+' + w.points : '—'}</td>
+      <td>${src}</td>
+    </tr>`;
+  }).join('');
+}
+
+function filterHistory(filter, btn) {
+  currentFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderHistoryTable(allWorkouts);
+}
+
+// ─────────────────────────────────────────────────────
+// SETTINGS TAB
+// ─────────────────────────────────────────────────────
+async function loadSettings() {
+  await loadVitaminSettings();
+}
+
+async function syncPeloton() {
+  const btn = document.getElementById('peloton-sync-btn');
+  const status = document.getElementById('peloton-sync-status');
+  btn.disabled = true; btn.textContent = '⏳ Syncing...'; status.textContent = '';
+  try {
+    await api('/admin/sync-peloton', 'POST');
+    status.textContent = 'Sync started — check back in 30 seconds'; status.style.color = 'var(--lime)';
+    showToast('Peloton sync started');
+    setTimeout(async () => { await loadDashboard(); status.textContent = 'Sync complete'; btn.disabled = false; btn.textContent = '🚴 Sync Peloton Now'; }, 30000);
+  } catch(e) { status.textContent = 'Sync failed'; status.style.color = 'var(--orange)'; btn.disabled = false; btn.textContent = '🚴 Sync Peloton Now'; showToast('Sync failed'); }
+}
+
+async function loadVitaminSettings() {
+  const el = document.getElementById('settings-vitamin-list');
+  try { renderVitaminSettings(await api(`/vitamins/config/${userId}`) || []); }
+  catch(e) { el.innerHTML = '<div class="empty-state">Error loading vitamins</div>'; }
+}
+
+function renderVitaminSettings(vitamins) {
+  const el = document.getElementById('settings-vitamin-list');
+  if (!vitamins.length) { el.innerHTML = '<div class="empty-state">No vitamins added yet</div>'; return; }
+  el.innerHTML = vitamins.map(v => `
+    <div class="vitamin-settings-row">
+      <div class="vitamin-settings-left"><div class="vitamin-settings-name">${v.vitamin_name}</div><div class="vitamin-settings-schedule">${v.schedule}</div></div>
+      <button class="vitamin-delete-btn" onclick="deleteVitamin(${v.id}, '${v.vitamin_name}')">Remove</button>
+    </div>`).join('');
+}
+
+async function addVitamin() {
+  const name = document.getElementById('vit-name-input').value.trim();
+  const schedule = document.getElementById('vit-schedule-input').value;
+  if (!name) { showToast('Enter a vitamin name first'); return; }
+  try {
+    await api('/vitamins/config', 'POST', { vitamin_name: name, schedule });
+    document.getElementById('vit-name-input').value = '';
+    showToast(`✓ ${name} added`);
+    await loadVitaminSettings();
+    renderVitamins(await api(`/vitamins/today/${userId}`) || []);
+  } catch(e) { showToast('Error adding vitamin'); }
+}
+
+async function deleteVitamin(id, name) {
+  try {
+    await api(`/vitamins/config/${id}`, 'DELETE');
+    showToast(`${name} removed`);
+    await loadVitaminSettings();
+    renderVitamins(await api(`/vitamins/today/${userId}`) || []);
+  } catch(e) { showToast('Error removing vitamin'); }
+}
+
+// ─────────────────────────────────────────────────────
+// ACTIONS
+// ─────────────────────────────────────────────────────
+async function addWater(oz) {
+  try {
+    const res = await api('/water', 'POST', { oz_amount: oz });
+    waterOz = res.today_total_oz;
+    renderWaterRing(waterOz);
+    showToast(`+${oz} oz · ${Math.round(waterOz)} oz today`);
+  } catch(e) { showToast('Error logging water'); }
+}
+
+async function toggleVitamin(name, alreadyTaken) {
+  if (alreadyTaken) return;
+  try {
+    await api('/vitamins/log', 'POST', { vitamin_name: name });
+    renderVitamins(await api(`/vitamins/today/${userId}`) || []);
+    showToast(`✓ ${name} logged`);
+  } catch(e) { showToast('Error logging vitamin'); }
+}
+
+function openWorkoutModal(prefilled) {
+  if (!prefilled) { document.getElementById('wk-equipment').value = 'peloton'; document.getElementById('wk-focus').value = ''; }
+  document.getElementById('wk-duration').value = '';
+  document.getElementById('wk-calories').value = '';
+  document.getElementById('wk-hr').value = '';
+  document.getElementById('wk-watts').value = '';
+  document.getElementById('wk-notes').value = '';
+  selectIntensity(3);
+  openModal('workout-modal');
+}
+
+function selectIntensity(n) {
+  selectedIntensity = n;
+  document.querySelectorAll('.int-btn').forEach((b, i) => { b.classList.toggle('selected', i + 1 === n); });
+}
+
+async function submitWorkout() {
+  const equipment = document.getElementById('wk-equipment').value;
+  const focus_area = document.getElementById('wk-focus').value;
+  const duration_mins = parseInt(document.getElementById('wk-duration').value) || null;
+  const calories = parseInt(document.getElementById('wk-calories').value) || null;
+  const avg_heart_rate = parseInt(document.getElementById('wk-hr').value) || null;
+  const output_watts = parseInt(document.getElementById('wk-watts').value) || null;
+  const notes = document.getElementById('wk-notes').value;
+  try {
+    const res = await api('/workouts', 'POST', { equipment, focus_area, duration_mins, intensity: selectedIntensity, calories, avg_heart_rate, output_watts, notes });
+    closeModal('workout-modal');
+    showToast(`Workout logged! +${res.points_earned} pts`);
+    await loadDashboard();
+    if (document.querySelector('.nav-tab.active')?.textContent === 'History') await loadHistory();
+  } catch(e) { showToast('Error logging workout'); }
+}
+
+// ─────────────────────────────────────────────────────
+// TAB SWITCHING
+// ─────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => { p.style.display = 'none'; p.classList.remove('active'); });
+  document.querySelector(`[onclick="switchTab('${tab}')"]`)?.classList.add('active');
+  const panel = document.getElementById(`tab-${tab}`);
+  panel.style.display = 'block'; panel.classList.add('active');
+  if (tab === 'history') loadHistory();
+  if (tab === 'settings') loadSettings();
+}
+
+// ─────────────────────────────────────────────────────
+// MODAL HELPERS
+// ─────────────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(el => {
+  el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
+});
+
+// ─────────────────────────────────────────────────────
+// TOAST / UTILS
+// ─────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+function dateStr(d) { return d.toISOString().split('T')[0]; }
+function fmtDate(str) {
+  if (!str) return '—';
+  return new Date(str).toLocaleDateString('en-US', { month:'short', day:'numeric' });
+}
+
+setInterval(() => { if (token && userId) loadDashboard(); }, 5 * 60 * 1000);
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kyle's Fitness Tracking</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ─── RESET & TOKENS ─────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #080b10;
+  --s1:        #0e1218;
+  --s2:        #141a24;
+  --s3:        #1c2433;
+  --border:    rgba(255,255,255,0.07);
+  --border2:   rgba(255,255,255,0.12);
+  --lime:      #c8ff57;
+  --lime-dim:  rgba(200,255,87,0.12);
+  --lime-glow: rgba(200,255,87,0.25);
+  --blue:      #3eb8ff;
+  --blue-dim:  rgba(62,184,255,0.12);
+  --orange:    #ff7043;
+  --orange-dim:rgba(255,112,67,0.12);
+  --pink:      #ff4fa3;
+  --pink-dim:  rgba(255,79,163,0.12);
+  --red:	   #ff0000;
+  --red-dim:   #rgba(170,0,0,0.12);
+  --text:      #dde3f0;
+  --muted:     #4a5570;
+  --muted2:    #6b7a99;
+  --peloton:   #e8324c;
+  --gym:       #3eb8ff;
+  --radius:    14px;
+  --radius-sm: 8px;
+}
+
+html { font-size: 15px; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Syne', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 9999; opacity: 0.6;
+}
+
+/* ─── LOADING ─────────────────────────────────────── */
+#loader {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 16px; z-index: 1000;
+  transition: opacity 0.5s;
+}
+#loader.hidden { opacity: 0; pointer-events: none; }
+.loader-logo { font-family: 'Bebas Neue', sans-serif; font-size: 3rem; letter-spacing: 8px; color: var(--lime); }
+.loader-bar { width: 200px; height: 2px; background: var(--s3); border-radius: 2px; overflow: hidden; }
+.loader-bar-fill { height: 100%; background: var(--lime); border-radius: 2px; animation: loadfill 1.2s ease forwards; }
+@keyframes loadfill { from { width: 0 } to { width: 100% } }
+
+/* ─── LOGIN ───────────────────────────────────────── */
+#login-screen { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 500; }
+#login-screen.hidden { display: none; }
+.login-box { background: var(--s1); border: 1px solid var(--border2); border-radius: 20px; padding: 48px 40px; width: 360px; text-align: center; box-shadow: 0 40px 80px rgba(0,0,0,0.6); animation: fadeup 0.4s ease; }
+@keyframes fadeup { from { opacity:0; transform:translateY(20px) } to { opacity:1; transform:none } }
+.login-title { font-family: 'Bebas Neue', sans-serif; font-size: 2.4rem; letter-spacing: 6px; color: var(--lime); margin-bottom: 6px; }
+.login-sub { font-size: 0.78rem; color: var(--muted2); margin-bottom: 32px; }
+.login-field { width: 100%; padding: 12px 16px; background: var(--s2); border: 1px solid var(--border2); border-radius: var(--radius-sm); color: var(--text); font-family: 'Syne', sans-serif; font-size: 0.9rem; margin-bottom: 12px; outline: none; transition: border-color 0.2s; }
+.login-field:focus { border-color: var(--lime); }
+.login-btn { width: 100%; padding: 13px; background: var(--lime); color: var(--bg); border: none; border-radius: var(--radius-sm); font-family: 'Bebas Neue', sans-serif; font-size: 1.1rem; letter-spacing: 3px; cursor: pointer; transition: opacity 0.2s; margin-top: 4px; }
+.login-btn:hover { opacity: 0.88; }
+.login-error { color: var(--orange); font-size: 0.78rem; margin-top: 10px; min-height: 18px; }
+
+/* ─── NAV ─────────────────────────────────────────── */
+nav { position: sticky; top: 0; z-index: 200; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; height: 58px; background: rgba(8,11,16,0.9); backdrop-filter: blur(16px); border-bottom: 1px solid var(--border); }
+.nav-logo { font-family: 'Bebas Neue', sans-serif; font-size: 1.5rem; letter-spacing: 4px; color: var(--lime); }
+.nav-tabs { display: flex; gap: 2px; }
+.nav-tab { padding: 6px 18px; border-radius: 6px; font-size: 0.78rem; font-weight: 700; letter-spacing: 1px; color: var(--muted2); cursor: pointer; transition: color 0.2s, background 0.2s; text-transform: uppercase; }
+.nav-tab:hover { color: var(--text); }
+.nav-tab.active { color: var(--lime); background: var(--lime-dim); }
+.nav-right { display: flex; align-items: center; gap: 14px; }
+.nav-user-name { font-size: 0.78rem; color: var(--muted2); font-weight: 600; }
+.nav-avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, var(--lime), var(--blue)); display: flex; align-items: center; justify-content: center; font-family: 'Bebas Neue', sans-serif; font-size: 0.85rem; color: var(--bg); }
+.nav-logout { font-size: 0.7rem; color: var(--muted); cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: color 0.2s; }
+.nav-logout:hover { color: var(--orange); }
+
+/* ─── TAB PANELS ──────────────────────────────────── */
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+.page { padding: 28px; max-width: 1360px; margin: 0 auto; }
+
+/* ─── CARDS ───────────────────────────────────────── */
+.card { background: var(--s1); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; position: relative; overflow: hidden; transition: border-color 0.2s; animation: fadeup 0.4s ease both; }
+.card:hover { border-color: var(--border2); }
+.card:nth-child(1) { animation-delay: 0.05s } .card:nth-child(2) { animation-delay: 0.1s } .card:nth-child(3) { animation-delay: 0.15s } .card:nth-child(4) { animation-delay: 0.2s } .card:nth-child(5) { animation-delay: 0.25s }
+.card-label { font-size: 0.62rem; font-weight: 800; letter-spacing: 2.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; }
+.card-accent-bar { position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+
+/* ─── TODAY GRID ──────────────────────────────────── */
+.today-grid { display: grid; grid-template-columns: 1fr 1fr 300px; gap: 16px; }
+.schedule-card { grid-column: 1 / 3; }
+.schedule-inner { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.schedule-left { flex: 1; }
+.schedule-day { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: var(--muted2); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; }
+.schedule-title { font-family: 'Bebas Neue', sans-serif; font-size: 2.2rem; letter-spacing: 3px; line-height: 1; color: var(--text); margin-bottom: 6px; }
+.schedule-title span { color: var(--lime); }
+.schedule-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.eq-tag { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.5px; }
+.eq-peloton { background: rgba(232,50,76,0.15); color: var(--peloton); border: 1px solid rgba(232,50,76,0.3); }
+.eq-gym { background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(62,184,255,0.3); }
+.eq-rest { background: var(--s2); color: var(--muted2); border: 1px solid var(--border); }
+.complete-btn { padding: 14px 28px; border-radius: var(--radius-sm); background: var(--lime); color: var(--bg); border: none; font-family: 'Bebas Neue', sans-serif; font-size: 1.1rem; letter-spacing: 2px; cursor: pointer; white-space: nowrap; transition: opacity 0.2s, transform 0.2s; box-shadow: 0 4px 20px var(--lime-glow); }
+.complete-btn:hover { opacity: 0.88; transform: translateY(-1px); }
+.complete-btn:disabled { opacity: 0.4; cursor: default; transform: none; }
+.quick-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.quick-btn { padding: 8px 16px; border-radius: 20px; border: 1px solid var(--border2); background: var(--s2); color: var(--text); font-family: 'Syne', sans-serif; font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: all 0.2s; }
+.quick-btn:hover { border-color: var(--lime); color: var(--lime); }
+
+/* ─── SUGGESTED PLAN CHECKLIST ────────────────────── */
+.plan-exercise-row { display:flex; align-items:center; gap:12px; padding:10px 14px; background:var(--s2); border-radius:var(--radius-sm); border:1px solid var(--border); transition:all 0.2s; }
+.plan-exercise-row.completed { border-color:rgba(200,255,87,0.35); background:var(--lime-dim); }
+.plan-exercise-checkbox { width:22px; height:22px; border-radius:6px; border:2px solid var(--border2); background:var(--s1); cursor:pointer; flex-shrink:0; display:flex; align-items:center; justify-content:center; transition:all 0.15s; font-size:0.85rem; color:var(--bg); font-weight:800; }
+.plan-exercise-checkbox:hover { border-color:var(--lime); }
+.plan-exercise-checkbox.checked { background:var(--lime); border-color:var(--lime); }
+.plan-exercise-info { flex:1; min-width:0; }
+.plan-exercise-name { font-size:0.85rem; font-weight:700; color:var(--text); }
+.plan-exercise-name.completed { text-decoration:line-through; color:var(--muted2); }
+.plan-exercise-meta { font-size:0.66rem; color:var(--muted2); font-family:'JetBrains Mono',monospace; margin-top:2px; }
+.plan-exercise-block-tag { font-size:0.58rem; padding:3px 9px; border-radius:10px; text-transform:uppercase; letter-spacing:0.5px; font-weight:800; flex-shrink:0; white-space:nowrap; }
+.block-no_bench { background:var(--blue-dim); color:var(--blue); }
+.block-bench { background:var(--orange-dim); color:var(--orange); }
+.block-rowing { background:var(--pink-dim); color:var(--pink); }
+.block-core { background:rgba(34,204,68,0.15); color:#22cc44; }
+.cardio-due-banner { margin-top:10px; padding:8px 14px; border-radius:var(--radius-sm); background:rgba(232,50,76,0.12); border:1px solid rgba(232,50,76,0.3); color:var(--peloton); font-size:0.72rem; font-weight:700; }
+.pre-stretch-banner { margin-bottom:6px; padding:9px 14px; border-radius:var(--radius-sm); background:rgba(62,184,255,0.1); border:1px dashed rgba(62,184,255,0.35); color:var(--blue); font-size:0.74rem; font-weight:600; }
+.pre-stretch-note { color:var(--muted2); font-weight:400; font-size:0.68rem; }
+
+/* ─── WATER CARD ──────────────────────────────────── */
+.water-card { grid-column: 3 / 4; grid-row: 1 / 3; }
+.water-visual { display: flex; flex-direction: column; align-items: center; gap: 14px; margin: 8px 0; }
+.water-circle { position: relative; width: 130px; height: 130px; }
+.water-circle svg { transform: rotate(-90deg); }
+.water-circle-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.water-oz { font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 2px; color: var(--blue); line-height: 1; }
+.water-goal-text { font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; color: var(--muted2); }
+.water-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.water-add-btn { padding: 7px 14px; border-radius: 20px; background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(62,184,255,0.3); font-family: 'Syne', sans-serif; font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: all 0.2s; }
+.water-add-btn:hover { background: rgba(62,184,255,0.22); }
+
+/* ─── VITAMINS ────────────────────────────────────── */
+.vitamin-list { display: flex; flex-direction: column; gap: 8px; }
+.vitamin-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--s2); border-radius: var(--radius-sm); border: 1px solid transparent; cursor: pointer; transition: all 0.2s; }
+.vitamin-row:hover { border-color: var(--border2); }
+.vitamin-row.taken { opacity: 0.5; }
+.vitamin-row.taken .vitamin-name { text-decoration: line-through; }
+.vitamin-name { font-size: 0.82rem; font-weight: 600; }
+.vitamin-schedule { font-family: 'JetBrains Mono', monospace; font-size: 0.62rem; color: var(--muted2); text-transform: uppercase; }
+.vitamin-check { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--border2); display: flex; align-items: center; justify-content: center; font-size: 0.7rem; transition: all 0.2s; }
+.vitamin-row.taken .vitamin-check { background: var(--lime); border-color: var(--lime); color: var(--bg); }
+
+/* ─── DASHBOARD GRID ──────────────────────────────── */
+.dash-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; }
+.stat-val { font-family: 'Bebas Neue', sans-serif; font-size: 3.2rem; letter-spacing: 2px; line-height: 1; }
+.stat-sub { font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; color: var(--muted2); margin-top: 4px; }
+.stat-delta { display: inline-flex; align-items: center; gap: 4px; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 20px; margin-top: 10px; }
+.delta-good { background: var(--lime-dim); color: var(--lime); } .delta-bad { background: var(--orange-dim); color: var(--orange); } .delta-neut { background: var(--s3); color: var(--muted2); }
+
+/* ─── HEATMAP ─────────────────────────────────────── */
+.heatmap-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.streak-badge { display: flex; align-items: center; gap: 8px; font-family: 'Bebas Neue', sans-serif; font-size: 1.2rem; letter-spacing: 2px; color: var(--lime); }
+.flame { animation: flicker 2s ease-in-out infinite alternate; display: inline-block; }
+@keyframes flicker { from { transform: scale(1) rotate(-2deg) } to { transform: scale(1.1) rotate(2deg) } }
+.heatmap-day-labels { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 4px; }
+.heatmap-day-label { text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 0.58rem; color: var(--muted); text-transform: uppercase; }
+.heatmap-grid { display: flex; flex-direction: column; gap: 4px; }
+.heatmap-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.heatmap-cell { aspect-ratio: 1; border-radius: 4px; background: var(--s2); cursor: pointer; transition: transform 0.15s; position: relative; }
+.heatmap-cell:hover { transform: scale(1.2); z-index: 10; }
+.heatmap-cell.empty { background: transparent; }
+.heatmap-cell.peloton { background: rgba(232,50,76,0.7); }
+.heatmap-cell.gym_monster { background: rgba(62,184,255,0.7); }
+.heatmap-cell.walking { background: rgba(80,200,120,0.7); }
+.heatmap-cell.both { background: linear-gradient(135deg, rgba(232,50,76,0.8) 50%, rgba(62,184,255,0.8) 50%); }
+.heatmap-cell.today { outline: 2px solid var(--lime); outline-offset: 1px; }
+.heatmap-cell-inner { width: 100%; height: 100%; display: flex; align-items: flex-start; justify-content: flex-end; padding: 2px 3px; font-family: 'JetBrains Mono', monospace; font-size: 0.42rem; color: rgba(255,255,255,0.5); line-height: 1; border-radius: 4px; }
+.heatmap-cell.peloton .heatmap-cell-inner, .heatmap-cell.gym_monster .heatmap-cell-inner, .heatmap-cell.walking .heatmap-cell-inner, .heatmap-cell.both .heatmap-cell-inner { color: rgba(255,255,255,0.7); }
+.heatmap-legend { display: flex; gap: 16px; margin-top: 12px; flex-wrap: wrap; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; color: var(--muted2); }
+.legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+
+/* ─── LEADERBOARD ─────────────────────────────────── */
+.side-panel { display: none; }
+.vs-title { font-family: 'Bebas Neue', sans-serif; font-size: 1rem; letter-spacing: 4px; color: var(--orange); text-align: center; margin-bottom: 16px; }
+.competitor { margin-bottom: 14px; }
+.competitor-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.competitor-name { font-size: 0.78rem; font-weight: 800; letter-spacing: 1px; }
+.competitor-pts { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--muted2); }
+.prog-bar { height: 5px; background: var(--s3); border-radius: 3px; overflow: hidden; }
+.prog-fill { height: 100%; border-radius: 3px; transition: width 1.2s cubic-bezier(0.4,0,0.2,1); }
+.fill-kyle { background: linear-gradient(90deg, var(--blue), var(--lime)); }
+.fill-haley { background: linear-gradient(90deg, var(--pink), #c47aff); }
+.vs-divider { text-align: center; font-family: 'Bebas Neue', sans-serif; letter-spacing: 4px; color: var(--s3); margin: 2px 0 6px; font-size: 0.85rem; }
+.vs-note { text-align: center; font-size: 0.65rem; color: var(--muted); font-family: 'JetBrains Mono', monospace; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); line-height: 1.6; }
+
+/* ─── RINGS ───────────────────────────────────────── */
+.rings-row { display: flex; justify-content: space-around; gap: 8px; margin-top: 8px; }
+.ring-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.ring-label { font-size: 0.6rem; color: var(--muted2); font-weight: 800; letter-spacing: 1px; text-align: center; text-transform: uppercase; }
+svg.ring-svg { transform: rotate(-90deg); }
+
+/* ─── BADGES ──────────────────────────────────────── */
+.badges-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+.badge-item { aspect-ratio: 1; border-radius: 10px; border: 1px solid var(--border); background: var(--s2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 1.2rem; cursor: default; transition: transform 0.2s; }
+.badge-item:hover { transform: scale(1.08); }
+.badge-item.earned { border-color: var(--lime); box-shadow: 0 0 16px var(--lime-glow); background: linear-gradient(135deg, var(--s2), #1a2a14); }
+.badge-item.locked { opacity: 0.3; filter: grayscale(1); }
+.badge-label { font-size: 0.48rem; font-weight: 800; letter-spacing: 0.5px; text-align: center; text-transform: uppercase; color: var(--muted); }
+.badge-item.earned .badge-label { color: var(--lime); }
+
+/* ─── WORKOUT TABLE ───────────────────────────────── */
+.workout-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+.workout-table th { text-align: left; font-size: 0.6rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); padding: 0 12px 10px; }
+.workout-table td { padding: 10px 12px; }
+.workout-table tbody tr { border-top: 1px solid var(--border); transition: background 0.15s; }
+.workout-table tbody tr:hover { background: var(--s2); }
+.workout-date { font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; color: var(--muted2); }
+.workout-focus { font-size: 0.82rem; font-weight: 600; }
+.workout-duration { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--muted2); }
+.workout-pts { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--orange); font-weight: 700; }
+.source-tag { font-size: 0.55rem; padding: 2px 6px; border-radius: 4px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
+.source-auto { background: var(--blue-dim); color: var(--blue); }
+.source-manual { background: var(--s3); color: var(--muted2); }
+.intensity-dots { display: flex; gap: 3px; }
+.intensity-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--s3); }
+.intensity-dot.filled { background: var(--lime); }
+
+/* ─── WEIGHT CHART ────────────────────────────────── */
+.mini-chart-wrap { margin-top: 8px; position: relative; }
+.chart-svg { width: 100%; overflow: visible; }
+.chart-empty { font-size: 0.75rem; color: var(--muted); text-align: center; padding: 30px 0; font-family: 'JetBrains Mono', monospace; }
+.weight-entries { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.weight-entry { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--s2); border-radius: var(--radius-sm); }
+.weight-entry-date { font-family: 'JetBrains Mono', monospace; font-size: 0.66rem; color: var(--muted2); }
+.weight-entry-val { font-family: 'Bebas Neue', sans-serif; font-size: 1.1rem; letter-spacing: 1px; color: var(--blue); }
+.weight-delta-up { font-size: 0.66rem; font-family: 'JetBrains Mono', monospace; color: var(--orange); }
+.weight-delta-down { font-size: 0.66rem; font-family: 'JetBrains Mono', monospace; color: var(--lime); }
+.auto-pill { font-size: 0.52rem; padding: 1px 5px; border-radius: 3px; background: var(--blue-dim); color: var(--blue); font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; margin-left: 4px; }
+
+/* ─── HISTORY ─────────────────────────────────────── */
+.history-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.history-filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.filter-btn { padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border2); background: transparent; color: var(--muted2); font-family: 'Syne', sans-serif; font-size: 0.72rem; font-weight: 700; cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
+.filter-btn.active { background: var(--lime-dim); color: var(--lime); border-color: rgba(200,255,87,0.3); }
+
+/* ─── MODAL ───────────────────────────────────────── */
+.modal-overlay { position: fixed; inset: 0; z-index: 800; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+.modal { background: var(--s1); border: 1px solid var(--border2); border-radius: 20px; padding: 36px; width: 440px; max-width: 95vw; transform: translateY(20px); transition: transform 0.25s; }
+.modal-overlay.open .modal { transform: none; }
+.modal-title { font-family: 'Bebas Neue', sans-serif; font-size: 1.8rem; letter-spacing: 4px; color: var(--lime); margin-bottom: 24px; }
+.modal-field { margin-bottom: 16px; }
+.modal-label { font-size: 0.65rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: var(--muted2); margin-bottom: 6px; display: block; }
+.modal-input, .modal-select, .modal-textarea { width: 100%; padding: 10px 14px; background: var(--s2); border: 1px solid var(--border2); border-radius: var(--radius-sm); color: var(--text); font-family: 'Syne', sans-serif; font-size: 0.88rem; outline: none; transition: border-color 0.2s; }
+.modal-input:focus, .modal-select:focus, .modal-textarea:focus { border-color: var(--lime); }
+.modal-select option { background: var(--s2); }
+.modal-row { display: flex; gap: 12px; }
+.modal-row .modal-field { flex: 1; }
+.modal-actions { display: flex; gap: 10px; margin-top: 8px; }
+.modal-submit { flex: 1; padding: 12px; background: var(--lime); color: var(--bg); border: none; border-radius: var(--radius-sm); font-family: 'Bebas Neue', sans-serif; font-size: 1rem; letter-spacing: 2px; cursor: pointer; transition: opacity 0.2s; }
+.modal-submit:hover { opacity: 0.88; }
+.modal-cancel { padding: 12px 20px; background: transparent; border: 1px solid var(--border2); border-radius: var(--radius-sm); color: var(--muted2); font-family: 'Syne', sans-serif; font-size: 0.82rem; font-weight: 700; cursor: pointer; transition: border-color 0.2s; }
+.modal-cancel:hover { border-color: var(--text); color: var(--text); }
+.intensity-picker { display: flex; gap: 8px; }
+.int-btn { flex: 1; padding: 10px 0; border-radius: var(--radius-sm); border: 1px solid var(--border2); background: var(--s2); color: var(--muted2); font-family: 'Syne', sans-serif; font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: all 0.15s; text-align: center; }
+.int-btn.selected { background: var(--lime-dim); color: var(--lime); border-color: rgba(200,255,87,0.4); }
+
+/* ─── FAB / TOAST ─────────────────────────────────── */
+.fab { position: fixed; bottom: 28px; right: 28px; z-index: 400; padding: 14px 26px; background: var(--lime); color: var(--bg); border: none; border-radius: 50px; font-family: 'Bebas Neue', sans-serif; font-size: 1rem; letter-spacing: 2px; cursor: pointer; box-shadow: 0 6px 28px var(--lime-glow); transition: transform 0.2s, box-shadow 0.2s; }
+.fab:hover { transform: translateY(-2px); box-shadow: 0 10px 36px var(--lime-glow); }
+.toast { position: fixed; bottom: 90px; right: 28px; z-index: 900; padding: 12px 20px; border-radius: var(--radius-sm); background: var(--s1); border: 1px solid var(--lime); color: var(--lime); font-size: 0.8rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px; opacity: 0; transform: translateY(10px); transition: all 0.3s; pointer-events: none; }
+.toast.show { opacity: 1; transform: none; }
+.empty-state { text-align: center; padding: 32px; color: var(--muted); font-size: 0.78rem; font-family: 'JetBrains Mono', monospace; }
+#debug-overlay { position: fixed; bottom: 0; left: 0; right: 0; max-height: 55vh; overflow-y: auto; background: rgba(20,0,0,0.97); color: #ff8080; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.5; padding: 40px 12px 16px; z-index: 99999; display: none; white-space: pre-wrap; word-break: break-word; border-top: 2px solid #ff3333; }
+#debug-overlay.visible { display: block; }
+#debug-overlay-close { position: fixed; top: 8px; right: 8px; background: #ff3333; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-weight: 800; font-family: 'Syne', sans-serif; font-size: 12px; z-index: 100000; }
+
+/* ─── SETTINGS ────────────────────────────────────── */
+.vitamin-settings-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--s2); border-radius: var(--radius-sm); margin-bottom: 6px; border: 1px solid var(--border); transition: border-color 0.2s; }
+.vitamin-settings-row:hover { border-color: var(--border2); }
+.vitamin-settings-left { display: flex; flex-direction: column; gap: 2px; }
+.vitamin-settings-name { font-size: 0.84rem; font-weight: 600; }
+.vitamin-settings-schedule { font-size: 0.62rem; font-family: 'JetBrains Mono', monospace; color: var(--muted2); text-transform: uppercase; letter-spacing: 1px; }
+.vitamin-delete-btn { background: transparent; border: 1px solid var(--border2); color: var(--muted); border-radius: 6px; padding: 4px 10px; font-size: 0.7rem; font-weight: 700; cursor: pointer; font-family: 'Syne', sans-serif; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
+.vitamin-delete-btn:hover { border-color: var(--orange); color: var(--orange); }
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--s3); border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<!-- ═══ LOADER ════════════════════════════════════ -->
+<div id="loader">
+  <div class="loader-logo">FITTRACK</div>
+  <div class="loader-bar"><div class="loader-bar-fill"></div></div>
+</div>
+
+<!-- ═══ LOGIN ═════════════════════════════════════ -->
+<div id="login-screen" class="hidden">
+  <div class="login-box">
+    <div class="login-title">FITTRACK</div>
+    <div class="login-sub">Your personal health dashboard</div>
+    <input class="login-field" type="text" id="login-user" placeholder="Username" autocomplete="username">
+    <input class="login-field" type="password" id="login-pass" placeholder="Password" autocomplete="current-password">
+    <button class="login-btn" onclick="doLogin()">SIGN IN</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<!-- ═══ NAV ═══════════════════════════════════════ -->
+<nav id="main-nav" style="display:none">
+  <div class="nav-logo">FITTRACK</div>
+  <div class="nav-tabs">
+    <div class="nav-tab active" onclick="switchTab('today')">Today</div>
+    <div class="nav-tab" onclick="switchTab('dashboard')">Dashboard</div>
+    <div class="nav-tab" onclick="switchTab('history')">History</div>
+    <div class="nav-tab" onclick="switchTab('settings')">Settings</div>
+  </div>
+  <div class="nav-right">
+    <span class="nav-user-name" id="nav-username"></span>
+    <div class="nav-avatar" id="nav-avatar"></div>
+    <span class="nav-logout" onclick="doLogout()">Logout</span>
+  </div>
+</nav>
+
+<!-- ═══ TODAY TAB ══════════════════════════════════ -->
+<div class="tab-panel active" id="tab-today" style="display:none">
+  <div class="page">
+    <div class="today-grid">
+
+      <!-- Scheduled Workout -->
+      <div class="card schedule-card">
+        <div class="card-accent-bar" style="background:var(--lime)"></div>
+        <div class="card-label">Today's Plan</div>
+        <div class="schedule-inner">
+          <div class="schedule-left">
+            <div class="schedule-day" id="today-day-label"></div>
+            <div class="schedule-title" id="today-schedule-title">REST DAY</div>
+            <div class="schedule-meta" id="today-schedule-meta"></div>
+            <div class="quick-row" id="today-quick-row"></div>
+          </div>
+          <button class="complete-btn" id="complete-workout-btn" onclick="openWorkoutModal(true)">✓ LOG WORKOUT</button>
+        </div>
+      </div>
+
+      <!-- Suggested Workout (exercise checklist) -->
+      <div class="card" id="suggested-plan-card" style="grid-column:1/3">
+        <div class="card-accent-bar" style="background:var(--lime)"></div>
+        <div class="card-label" id="suggested-plan-label">Suggested Workout</div>
+        <div id="suggested-plan-list" style="display:flex;flex-direction:column;gap:8px">
+          <div class="empty-state">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Water -->
+      <div class="card water-card">
+        <div class="card-accent-bar" style="background:var(--blue)"></div>
+        <div class="card-label">Water Intake</div>
+        <div class="water-visual">
+          <div class="water-circle">
+            <svg width="130" height="130" viewBox="0 0 130 130">
+              <circle cx="65" cy="65" r="54" fill="none" stroke="var(--s2)" stroke-width="10"/>
+              <circle cx="65" cy="65" r="54" fill="none" stroke="var(--blue)" stroke-width="10" stroke-linecap="round" id="water-ring-circle" stroke-dasharray="339.3" stroke-dashoffset="339.3" style="transition:stroke-dashoffset 0.8s ease"/>
+            </svg>
+            <div class="water-circle-text">
+              <div class="water-oz" id="water-oz-display">0</div>
+              <div class="water-goal-text">/ 100 oz</div>
+            </div>
+          </div>
+          <div class="water-btns">
+            <button class="water-add-btn" onclick="addWater(8)">+8 oz</button>
+            <button class="water-add-btn" onclick="addWater(16)">+16 oz</button>
+            <button class="water-add-btn" onclick="addWater(24)">+24 oz</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Vitamins -->
+      <div class="card vitamins-card">
+        <div class="card-accent-bar" style="background:var(--pink)"></div>
+        <div class="card-label">Vitamins</div>
+        <div class="vitamin-list" id="vitamin-list"><div class="empty-state">Loading...</div></div>
+      </div>
+
+      <!-- Muscle Recovery Map -->
+      <div class="card" style="grid-column:1/3">
+        <div class="card-accent-bar" style="background:var(--red)"></div>
+        <div class="card-label">Muscle Recovery</div>
+        <div id="muscle-map-wrap" style="display:flex;gap:16px;justify-content:center;align-items:flex-start;flex-wrap:wrap">
+
+          <!-- Front SVG — paths from bodyFront.ts, scale(0.15193, 0.17956) maps 724x1448 → 110x260 -->
+          <div style="text-align:center; margin-bottom: 120px">
+            <div style="font-size:0.58rem;font-family:'JetBrains Mono',monospace;color:var(--muted2);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">Front</div>
+            <svg id="muscle-front" viewBox="0 0 110 260" width="110" style="overflow:visible; transform: scale(1.8); transform-origin: top center;">
+              <g transform="scale(0.15193,0.17956)">
+                <!-- Body outline -->
+                <path fill="none" stroke="rgba(255,255,255,0.13)" stroke-width="2" d="M 309.48 168.91 Q 305.84 164.32 303.32 169.76 C 298.49 180.21 308.31 200.03 314.51 208.74 C 316.34 211.31 318.01 208.95 318.58 207.26 C 319.06 215.09 318.68 227.40 324.34 232.47 C 327.22 235.05 326.97 235.88 326.92 239.51 Q 326.68 255.16 323.97 266.82 Q 308.61 282.73 290.26 293.23 C 278.34 300.05 267.53 299.26 253.00 298.03 Q 237.49 296.72 224.74 305.21 C 208.71 315.86 190.95 335.73 189.24 355.50 Q 186.95 381.81 190.53 412.66 C 190.79 414.92 190.69 417.49 191.02 419.92 C 187.89 427.65 183.99 434.89 181.93 441.29 C 177.25 455.76 176.31 470.23 176.20 486.02 C 159.84 507.69 147.56 529.29 141.49 554.95 Q 140.10 560.80 138.16 574.66 Q 131.28 623.74 118.11 671.52 C 115.99 679.21 112.98 690.29 104.08 693.63 Q 90.70 698.65 79.29 707.27 C 73.17 711.89 69.48 719.95 66.12 726.62 C 62.44 733.91 47.57 737.30 49.20 746.00 C 49.75 748.96 51.89 750.13 54.75 750.02 Q 67.27 749.50 74.18 740.00 C 76.03 737.45 77.93 736.62 80.54 735.24 Q 84.59 743.00 80.47 750.73 Q 71.41 767.75 62.21 784.70 C 57.52 797.69 65.78 800.84 69.45 795.20 C 76.80 783.92 82.72 773.30 92.55 762.52 Q 87.89 783.24 79.07 802.44 C 77.36 806.17 75.64 812.30 79.19 815.18 C 89.50 823.53 107.08 773.44 109.24 767.88 C 108.51 777.44 106.43 787.14 105.28 796.13 C 104.34 803.43 103.67 808.49 104.41 814.32 C 105.40 822.00 112.74 817.15 114.09 812.77 C 118.56 798.32 120.41 781.74 125.18 766.21 C 131.64 768.40 126.65 796.54 133.38 803.49 C 138.40 804.59 139.71 797.34 140.15 793.73 Q 141.74 780.80 142.58 767.76 Q 150.39 737.64 154.77 715.46 Q 156.15 708.50 155.48 697.76 Q 154.48 681.63 161.99 665.46 Q 180.58 625.46 201.25 586.52 C 213.64 563.18 218.66 541.14 220.65 514.18 C 221.24 506.18 223.22 502.59 228.42 495.84 C 237.76 483.72 242.73 464.92 246.12 450.19 L 250.30 447.82 Q 252.78 470.14 257.44 487.01 C 259.04 492.80 264.20 498.21 265.32 505.20 C 265.91 508.82 266.99 512.44 267.11 516.00 Q 267.57 529.33 266.95 540.50 C 265.58 565.32 263.85 592.20 259.98 619.13 C 258.39 630.19 253.14 640.55 250.52 651.43 Q 245.19 673.62 242.32 696.24 C 239.63 717.56 236.59 740.02 236.04 757.75 Q 234.98 791.48 237.98 842.55 Q 239.43 867.18 244.64 891.26 Q 247.76 905.70 255.88 917.90 C 254.89 926.25 257.03 933.47 255.60 940.95 Q 252.28 958.32 251.77 975.98 C 251.55 983.43 252.85 991.28 253.67 998.93 Q 253.99 1001.95 253.29 1005.00 C 239.19 1067.03 246.93 1130.64 261.77 1190.07 C 266.01 1207.06 266.47 1222.37 264.71 1240.03 C 263.85 1248.62 262.10 1260.41 264.24 1268.75 C 266.05 1275.80 267.54 1287.46 261.78 1293.28 C 256.71 1298.39 242.40 1310.55 240.72 1316.98 C 239.19 1322.86 235.04 1332.26 242.29 1333.71 C 242.95 1340.16 249.20 1340.52 253.77 1340.86 C 256.46 1341.06 257.37 1343.60 259.30 1344.71 Q 263.13 1346.91 267.14 1344.43 Q 271.17 1348.61 276.21 1349.09 C 278.90 1349.35 281.27 1347.36 283.62 1346.09 Q 288.33 1351.29 294.72 1351.38 C 295.77 1351.39 297.65 1351.62 298.54 1350.79 Q 301.20 1348.30 306.57 1341.58 C 312.04 1334.74 311.14 1328.85 310.29 1320.16 C 309.43 1311.33 311.17 1303.41 313.76 1295.20 C 315.84 1288.56 313.35 1280.06 314.07 1273.15 C 314.57 1268.39 315.80 1263.68 315.01 1259.02 C 314.06 1253.42 311.98 1247.60 311.31 1242.66 Q 309.57 1229.80 309.57 1219.75 Q 309.57 1192.29 313.54 1161.94 C 315.34 1148.21 319.24 1136.08 324.12 1123.46 Q 325.66 1119.48 326.10 1115.72 C 330.14 1081.34 326.20 1048.44 320.65 1013.26 C 319.84 1008.17 319.39 1002.54 321.72 997.72 C 328.03 984.68 329.28 969.38 329.07 954.15 C 329.01 949.50 327.95 944.55 327.58 939.63 C 327.13 933.64 329.28 925.78 330.82 919.80 C 334.72 904.69 337.76 888.96 341.43 874.30 Q 348.95 844.25 355.42 813.95 C 358.50 799.49 357.70 784.78 357.75 768.06 Q 357.78 756.80 356.36 748.81 L 363.71 751.99 L 371.53 748.56 C 369.47 765.94 370.28 783.04 371.30 800.17 Q 371.86 809.54 372.73 813.51 C 378.37 839.12 384.90 864.49 390.59 890.08 Q 394.83 909.20 399.51 928.22 C 400.58 932.58 401.13 937.66 400.58 941.57 C 398.11 958.92 398.53 982.22 407.11 998.54 C 408.41 1001.01 408.74 1005.35 408.31 1008.09 C 402.82 1043.75 398.07 1079.22 402.19 1115.33 Q 402.65 1119.34 404.21 1123.44 C 410.53 1140.06 413.55 1150.61 415.25 1164.75 C 418.31 1190.26 420.52 1218.43 416.79 1244.33 C 415.56 1252.86 411.78 1258.57 413.63 1267.80 Q 415.33 1276.21 414.16 1284.74 C 413.11 1292.39 415.65 1298.68 417.31 1305.89 C 419.02 1313.32 418.11 1320.99 417.47 1328.50 C 416.71 1337.55 423.74 1344.86 430.17 1350.90 Q 439.25 1352.41 444.03 1346.06 Q 453.39 1352.89 460.49 1344.48 C 469.09 1349.37 474.98 1340.71 479.52 1340.64 Q 485.21 1340.09 483.54 1333.77 C 488.25 1334.67 490.06 1327.75 490.06 1327.75 C 489.09 1321.04 487.50 1314.41 483.44 1310.30 Q 474.77 1301.53 466.05 1292.83 C 461.19 1287.98 462.25 1276.40 463.74 1270.47 C 466.27 1260.35 464.49 1248.06 463.03 1236.25 C 461.04 1220.05 463.22 1204.28 467.41 1187.04 C 481.60 1128.60 488.89 1065.20 475.23 1006.07 C 473.92 1000.37 475.00 995.00 475.76 989.36 C 477.88 973.68 475.72 958.50 473.08 942.76 C 471.70 934.55 473.60 926.56 472.20 918.79 C 483.07 902.63 486.53 880.99 488.49 863.25 C 492.12 830.38 492.47 797.34 492.26 764.31 C 492.11 741.56 488.80 719.07 486.12 696.53 C 484.30 681.19 480.76 664.32 477.47 649.99 C 474.89 638.73 469.69 628.87 468.04 617.25 C 465.37 598.45 464.19 580.92 462.40 556.31 Q 460.86 535.06 461.01 522.74 Q 461.13 512.05 463.22 504.00 C 464.54 498.90 468.30 493.91 469.91 489.46 C 474.50 476.74 476.10 461.71 477.56 448.28 L 481.73 449.35 Q 486.03 466.84 492.52 482.96 C 494.16 487.04 496.63 491.75 500.12 495.79 C 505.75 502.32 507.17 507.95 508.00 517.24 C 509.72 536.47 512.15 552.06 518.89 569.24 Q 521.60 576.16 527.50 587.28 Q 543.57 617.60 558.56 648.47 C 566.04 663.89 571.90 675.54 572.85 690.59 Q 577.87 736.78 582.37 752.38 C 585.15 761.98 586.32 769.32 586.71 778.53 C 586.92 783.46 587.58 803.53 593.41 804.06 C 599.41 804.61 600.39 768.08 600.39 768.08 C 607.27 782.50 609.43 797.55 614.25 812.25 C 622.81 817.38 624.13 803.72 624.13 803.72 Q 621.83 785.89 618.23 768.64 C 622.72 777.06 636.06 814.20 645.24 816.03 C 650.64 817.10 652.13 811.12 650.95 807.31 C 648.59 799.74 644.42 791.59 642.09 784.69 Q 638.29 773.46 635.22 761.98 Q 640.35 767.61 644.90 773.66 C 649.45 779.70 658.03 793.93 661.70 797.82 C 665.53 799.62 669.00 791.28 659.33 772.19 Q 654.22 762.29 648.82 752.53 C 645.43 746.40 646.89 735.59 647.60 735.27 C 650.55 736.50 654.44 740.27 661.27 749.61 Q 673.53 749.92 676.20 738.28 C 671.33 735.31 664.61 731.14 661.97 725.94 C 657.98 718.11 649.21 707.28 623.76 693.40 C 619.45 691.75 615.12 686.26 613.76 682.47 Q 608.42 667.65 602.70 641.81 Q 594.90 606.62 590.85 578.90 Q 588.46 562.58 587.74 559.15 C 582.02 531.75 569.74 509.81 552.98 487.61 Q 552.48 466.57 548.70 449.61 C 546.27 438.71 537.44 420.82 539.05 356.70 C 537.31 336.13 521.34 317.28 504.86 306.23 C 494.75 299.45 473.93 298.16 Q 464.41 299.12 453.63 298.41 C 438.05 297.39 407.40 270.35 404.10 265.32 Q 401.24 251.68 401.26 237.76 Q 404.68 232.04 408.75 206.85 C 412.01 211.62 414.22 208.45 421.05 198.67 C 427.45 183.93 425.97 172.00 418.91 167.68"/>
+                <!-- Hair -->
+                <path fill="#52492B" stroke="none" d="M418.91 167.68q-2.55 11.73-3.88 24.27a1.14 1.14 0 01-2.22.23c-3.45-10.76.93-27.48-5.64-36.36q-4.31-5.81-4.97-12.32c-.55-5.49-.15-12.85-6.11-15.22q-1.84-.74-8.75-.72-10.17.03-20.22-1.62c-4.13-.68-7.51.2-11.53.75-6.31.86-12.61.81-19 .93-5.43.09-9.3 2.68-9.77 8.21-.71 8.31-1.21 13.06-5.57 19.82-2.68 4.16-3.78 8.57-3.8 13.1-.02 5.29.16 22.47-2.63 24.22a1.02 1.02 0 01-1.56-.77q-1.14-11.78-3.78-23.29-1.48-6.99-1.9-9.7c-2.49-15.94.13-40.13 13.53-51.15 9.39-7.72 28.53-11.63 40.37-11.51 4.2.05 8.74-.3 12.68.22 13.82 1.82 31.67 5.83 39.42 18.92 9.01 15.21 9.88 35.14 5.33 51.99z"/>
+                <!-- Head face -->
+                <path fill="#c8a882" stroke="none" d="M 418.91 167.68 c 3.92 -1.77 6.58 0.47 7.06 4.32 c 1.48 11.93 -4.92 26.67 -11.75 36.45 c -2.21 3.17 -3.86 0.17 -4.74 -1.76 c 0.02 8.31 1.01 17.01 -3.36 24.53 c -0.167 0.293 -4.39 4.62 -10.799 9.508 c -23.591 18.112 -41.591 16.112 -61.446 -0.797 c -4.736 -3.649 -5.925 -5.041 -8.805 -7.621 c -5.66 -5.07 -5.28 -17.38 -4.47 -24.92 c -0.57 1.69 -2.24 4.05 -4.07 1.48 c -6.2 -8.71 -16.02 -28.53 -11.19 -38.98 c 1.68 -3.627 3.733 -3.91 6.16 -0.85 a 182.853 182.853 0 0 1 3.78 23.29 c 2.79 -1.75 2.61 -18.93 2.63 -24.22 c 0.02 -4.53 1.12 -8.94 3.8 -13.1 c 4.36 -6.76 4.86 -11.51 5.57 -19.82 c 0.47 -5.53 4.34 -8.12 9.77 -8.21 c 6.39 -0.12 12.69 -0.07 19 -0.93 c 4.02 -0.55 7.4 -1.43 11.53 -0.75 c 6.7 1.1 13.44 1.64 20.22 1.62 c 4.607 -0.013 7.523 0.227 8.75 0.72 c 5.96 2.37 5.56 9.73 6.11 15.22 c 0.44 4.34 2.097 8.447 4.97 12.32 c 6.57 8.88 2.19 25.6 5.64 36.36 a 1.14 1.14 0 0 0 2.22 -0.23 c 0.887 -8.36 2.18 -16.45 3.88 -24.27 z"/>
+                <!-- Trapezius front -->
+                <path id="m-trap-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M285.01 307.01a.89.89 0 01-.11-1.64q19.44-9.61 35.65-24.8 1.68-1.57 3.31-.31.4.32.45.82 1.25 12.61-1.57 25.41c-.74 3.32-2.55 4.23-5.9 4.48q-16.02 1.24-31.83-3.96z"/>
+                <path id="m-trap-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M414 311.19c-5.24-.12-7.81-.64-8.9-6.27q-2.33-12.09-1.17-23.94.06-.61.61-.89 1.66-.85 3.65.99 16.12 14.87 33.97 23.63 3.65 1.79-.27 2.89-13.88 3.91-27.89 3.59z"/>
+                <!-- Chest -->
+                <path id="m-chest-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M272.91 422.84c-18.95-17.19-22-57-12.64-78.79 5.57-12.99 26.54-24.37 39.97-25.87q20.36-2.26 37.02.75c9.74 1.76 16.13 15.64 18.41 25.04 3.99 16.48 3.23 31.38 1.67 48.06q-1.35 14.35-2.05 16.89c-6.52 23.5-38.08 29.23-58.28 24.53-9.12-2.12-17.24-4.38-24.1-10.61z"/>
+                <path id="m-chest-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M416.04 435c-15.12.11-34.46-6.78-41.37-21.48q-1.88-3.99-2.84-12.18c-2.89-24.41-5.9-53.65 8.44-74.79 4.26-6.26 10.49-7.93 18.36-8.56q11.66-.92 23.32-.35c10.58.53 18.02 2.74 26.62 7.87 12.81 7.65 19.73 14.52 22.67 29.75 4.94 25.57.24 64.14-28.21 74.97q-12.26 4.67-26.99 4.77z"/>
+                <!-- Front Deltoids -->
+                <path id="m-front-delt-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M274.06 311.69q3.94 2.77 4.33 8.14.04.48-.38.73c-9.98 5.88-24.35 7.45-28.82 19.75-2.31 6.36-.97 17.35-1.43 23.68q-.55 7.51-5.73 14.07-10.37 13.11-13.81 16.67c-3.41 3.53-6.81 1.76-10.69-.47-15.42-8.87-24.95-25.45-22.52-43.22 2.05-14.92 12.71-25.79 24.06-35.02 16.99-13.82 35.58-17.99 54.99-4.33z"/>
+                <path id="m-front-delt-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M450.39 320.75q-.95-.52-.7-1.58c1.57-6.61 5.8-9.1 12.14-11.9 24.99-11.03 43.76 3.33 60.17 20.74 20.73 21.99 11.81 56.44-14.82 68.19-4.41 1.94-6.79-1.03-9.81-4.51-5.81-6.7-13.46-14.12-15.99-22.8-3.93-13.43 4.32-27.54-9.64-37.62q-8.22-5.93-17.99-9.08-1.84-.59-3.36-1.44z"/>
+                <!-- Biceps -->
+                <path id="m-bicep-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M189.52 492.51c-2.43.62-7.38.57-7.51-3.08-.56-16.01-.42-35.49 5.11-50.26 3.19-8.54 13.89-30.22 23.27-32.72 10.08-2.68 12.68 16.59 12.6 22.8-.22 15.98-7.51 34.79-15.05 48.71-4.29 7.94-9.95 12.38-18.42 14.55z"/>
+                <path id="m-bicep-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M526.69 486.31c-9.9-8.61-17.75-33.21-20.65-47.73-1.41-7.06-1.34-29.61 8.58-32.16 10.33-2.66 23.81 25.34 26.6 32.91q2.6 7.04 3.6 16.13 1.62 14.66 1.66 32.28c.03 11.04-16.45 1.48-19.79-1.43z"/>
+                <!-- Forearms -->
+                <path id="m-forearm-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M127.23 683.05c-4.07-2.12 1.27-27.07 2.25-31.57 4.98-23.03 9.17-46.17 13.91-69.25q1.53-7.47 2.13-15.13c.93-12.09.81-22.15 6.23-31.59 7.1-12.33 13.54-29.16 26.1-36.73a1.98 1.97 62.7 012.84.91c1.92 4.48 1.93 8.28 2.06 14.15.44 19.77-1.3 41.04-8.72 59.67-11 27.62-22.22 55.21-32.62 82.91-4.04 10.76-7.56 20.66-12.82 26.39q-.59.65-1.36.24z"/>
+                <path id="m-forearm-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M600.08 683.04c-5-4.14-8.97-15.46-11.29-21.56-5.82-15.25-11.38-30.55-17.58-45.7q-9.15-22.39-18.02-44.89c-5.58-14.19-7.32-31.42-7.99-46.57-.29-6.44-.68-19.43 2.67-25.02a1.71 1.71 0 012.25-.63c6.72 3.52 11.29 9.96 14.87 16.5q6.25 11.38 12.68 22.66c1.97 3.45 2.93 7.66 3.41 12.06 1.16 10.6 1.55 21.29 3.66 31.65 3.93 19.29 7.38 38.63 11.47 57.92 1.5 7.07 9.3 39.08 5.12 43.5a.91.91 0 01-1.25.08z"/>
+                <!-- Abs (6 sections combined into left/right groups) -->
+                <path id="m-abs-1l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M311.02 531.71a.23.23 0 01-.19-.21q-.39-10.47 1.9-20.76c1.26-5.69 7.66-9.9 13.1-12.9 9.09-5.01 18.93-11.15 28.56-14.92a1.24 1.21-42.6 01.94.03c3.28 1.52 4.78 3.87 4.82 7.68q.13 13.16-.15 26.31c-.08 3.85.78 8.39-.87 13.1q-.17.46-.59.72-2.65 1.65-4.29 1.82-21.06 2.22-43.23-.87z"/>
+                <path id="m-abs-1r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M371.94 473.31c-5.46-2.59-2.97-24.26-2.77-29.56.25-6.8 2.41-18.63 12.64-13.8q16.26 7.67 32.34 15.72 6.18 3.1 7.13 10.05c.58 4.26 1.35 8.49 1.07 12.72q-.84 12.55-4.33 26.56-.54 2.16-1.1 3.44-.25.58-.81.31c-15.78-7.29-30.79-19.08-44.17-25.44z"/>
+                <path id="m-abs-2l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M321 577.76c-5.17-.33-8.71-.44-10-6.26q-3.2-14.44-.59-27.83.11-.53.64-.63c7.58-1.44 13.62-2.45 22.45-4.56q11.5-2.76 23.94-1.88c3.67.26 3.3 3.46 3.4 6.21q.46 12.55-.33 26.94-.25 4.41-1.81 8.08-.21.49-.73.6-1.39.28-3.22.29-16.89.14-33.75-.96z"/>
+                <path id="m-abs-2r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M382.57 533.27c-4.17-.18-9.56-.3-13.15-2.69q-.17-.11-.24-.31c-1.82-5.55-.86-11.17-.96-15.66-.18-8.4-.78-17.36.06-25.71.29-2.85 1.88-4.42 4.15-5.79q.42-.26.91-.19 1.71.25 3.21 1.03 12.48 6.44 24.75 13.26c4.96 2.75 12.21 7.02 13.72 12.41q2.93 10.56 2.39 21.49a.77.76-1.8 01-.67.71q-16.89 2.18-34.17 1.45z"/>
+                <path id="m-abs-3l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M347.73 429.25c7.46-3.61 10.5 6.27 10.99 11.52.48 5.06 3.46 30.61-2.78 32.93q-4.17 1.55-6.89 3.33-17.56 11.54-35.88 21.46a1.6 1.59-21.9 01-2.3-.98c-2.87-10.41-10.59-43.96 1.66-50.95 11.3-6.45 23.96-11.86 35.2-17.31z"/>
+                <path id="m-abs-3r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M373.75 578.69c-2.47 0-4.31.22-5-2.7-1.8-7.7-3.05-34.29-.19-38.81q.27-.43.77-.47 13.14-1.24 25.77 1.83c8.41 2.04 14.51 3.01 21.85 4.36a1.29 1.28.6 011.05 1.07q2.16 14.12-.73 28.07c-1.08 5.24-5.22 5.26-10.36 5.63q-14.26 1.04-33.16 1.02z"/>
+                <!-- 4th abs row (lower abs / navel strip) — must be after abs-3 -->
+                <path id="m-abs-4l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M350.35 712.81c-29.15-9.93-37.98-100.69-39.47-126.61a.99.99 0 01.33-.8c3.58-3.26 27.61-1.47 34.62-.93 4.41.34 15.27 1.31 15.26 7.53-.05 40.77.64 82.05-1.96 122.72a1.29 1.29 0 01-1.86 1.08c-2.3-1.14-4.12-2.04-6.92-2.99z"/>
+                <path id="m-abs-4r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M416.32 584.73q1.14.41 1.07 1.62c-1.62 26.44-9.96 116.68-40.43 126.74-2.27.75-4.15 2.12-6.35 2.73q-1.18.33-1.3-.89-.86-9.2-1.06-17.75c-.83-35.67-.91-71.2-1.01-106.88q0-.5.31-.89c4.95-6.46 41.69-7.25 48.77-4.68z"/>
+                <!-- Quads — rendered before obliques so obliques paint on top -->
+                <path id="m-quad-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M292.42 935.6q-.95-.52-1.57-1.4-4.1-5.79-7-13.53-7.8-20.79-13.3-42.33c-9.06-35.53-19.33-71.36-25.03-107.59-5.33-33.86 4-74.19 20.7-103.37q.35-.62.53.07c14.44 55.57 39.03 107.94 41.45 165.34 1.11 26.34.66 52.96-3.6 79.03-.63 3.83-4.73 27.81-12.18 23.78zM275.11 942.93q-2.42-2.18-3.57-5.24c-3.98-10.61-7.68-21.02-12.81-31.32-7.85-15.76-10.77-34.56-13.2-51.46-2.11-14.63-2.31-31.47-3.93-47.18-.22-2.16-1.04-12.78.46-13.79q1.36-.92 2.08.55c1.5 3.08 3.12 6.12 3.66 9.58q8.21 52.38 26.36 102.15c2.87 7.87 9.98 30.5 1.85 36.74a.71.7-42.5 01-.9-.03z"/>
+                <path id="m-quad-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M437.82 933.52c-8.9 14.18-15.15-26.74-15.46-29.25q-5.26-43.04-1.19-86.08c4.9-51.8 26.91-99.32 40.38-150.92q.18-.66.5-.06c17.25 31.67 25.39 68.28 20.54 104.36q-2.29 17.02-8.71 42.76-7.56 30.25-15.2 60.47-6.13 24.25-15.06 47.61-1.83 4.79-5.8 11.11zM451.79 942.6c-9.95-10.01 4.97-42.91 8.94-55.41q12.55-39.53 19.27-80.47c.49-2.97 2.64-12.34 5.41-13.28a.83.83 0 011.09.64q.74 4 .45 7.92c-1.99 26.52-3.37 58.99-11.01 87.73q-2.53 9.5-7.46 18.8c-4.38 8.24-6.97 16.72-10.08 25.27q-1.66 4.54-4.55 8.63a1.35 1.35 0 01-2.06.17z"/>
+                <!-- Calves front (tibialis) -->
+                <path id="m-calf-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M263.52 973.59a.6.6 0 011.09-.14q1.38 2.22 1.83 5.06c7.87 49.97 18.01 99.59 25 149.68q4.63 33.19 4.31 67.55-.04 3.45-2.15 5.76-.4.44-.75-.03-1.89-2.58-3.08-5.51c-11.63-28.6-20.46-58.12-24.26-88.68q-4.96-39.97-5.72-69.53c-.13-5.27-.17-12.59.35-18.98q1.7-20.77 2.52-41.6c.04-1.16.52-2.43.86-3.58z"/>
+                <path id="m-calf-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M463.39 973.68a.7.7 0 011.25-.1c.27.46.64 1.34.68 1.93q1.26 20.88 2.53 41.76.66 10.82.39 19.98-1.23 40.77-7.51 82.25c-3.91 25.87-12.19 51.55-21.96 75.76q-1.13 2.79-3.27 6.13-.29.44-.71.12c-2.68-2.06-2.32-6.7-2.29-10.32.26-31.03 2.71-55.52 8.76-91.4q9.27-55.06 18.94-110.05c.8-4.5.99-10.52 3.19-16.06z"/>
+                <!-- Adductors / inner thigh — after quads so visible -->
+                <path id="m-hip-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M280.26 647.4c11.65 10.74 22.18 21.04 31.02 34.3 15.82 23.72 27.55 49.72 34.01 77.58 1.34 5.79-6.14 20.34-12.62 20.22q-.52-.01-.72-.49-.67-1.59-1.21-3.13c-14.68-41.71-27.96-79.71-46.87-117.01-1.9-3.74-3.05-7.33-4.06-11.2a.27.27 0 01.45-.27z"/>
+                <path id="m-hip-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M395.47 779.4c-5.7 1.33-11.34-11.87-12.46-15.86q-.61-2.18-.02-4.65 10.17-42.64 35.06-78.81c9.47-13.77 18.83-22.36 29.85-32.56q.55-.5.4.22-1.12 5.7-3.73 10.83c-19.44 38.38-33.3 79.2-47.77 119.65a1.84 1.83-86.4 01-1.33 1.18z"/>
+                <!-- Obliques — rendered after quads so lower portion is visible -->
+                <path id="m-oblique-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M264.21 435.53c-4.88-3.13-5.75-12.11-5.39-17.36q.03-.53.51-.75 1.8-.84 3.43.85 10.05 10.45 22.57 16.9c3.64 1.89 5.54 3.62 4.79 7.8q-.42 2.35-2.82 1.87-12.45-2.49-23.09-9.31zM308.17 657.58c-7.39-.13-12.41-4.13-17.14-9.39q-11.86-13.22-23.92-26.37-.33-.36-.33-.85.09-23.18 1.81-46.22.53-7.13 2.49-14.41a.71.71 0 011.2-.3q11.54 12.06 25.82 21.1 3.36 2.12 3.62 5.17 2.06 23.67 3.86 47.36c.58 7.62 2.31 13.36 4.43 20.82q.47 1.66-.96 2.79-.39.31-.88.3z"/>
+                <path id="m-oblique-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M438.7 444.36c-2.09-4.03-.13-6.83 3.63-8.81 10.22-5.36 16.79-11 24.23-18.07a1.71 1.71 0 012.89 1.12c.33 4.74-.81 14.39-5.53 17.22-4.68 2.82-18.74 10.02-24.39 9.14q-.57-.09-.83-.6zM418.89 657.11q-1.12-1.67-.43-3.63 3.27-9.38 4.04-18.23 1.97-22.81 3.58-45.65c.16-2.32.72-6.41 2.84-7.71q14.97-9.23 27.16-21.93.41-.42.71.08 1.29 2.15 1.53 4.2 3.23 27.74 3.13 56.8a1.3 1.28-24.5 01-.33.86q-12.74 13.93-25.55 27.75c-4.8 5.17-9.09 7.87-15.73 7.96q-.61.01-.95-.5z"/>
+              </g>
+            </svg>
+          </div>
+
+          <!-- Back SVG — paths from bodyBack.ts, scale(0.15193,0.17956) translate(-724,0) -->
+          <div style="text-align:center; margin-bottom: 120px">
+            <div style="font-size:0.58rem;font-family:'JetBrains Mono',monospace;color:var(--muted2);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">Back</div>
+            <svg id="muscle-back" viewBox="0 0 110 260" width="110" style="overflow:visible; transform: scale(1.8); transform-origin: top center;">
+              <g transform="scale(0.15193,0.17956) translate(-724,0)">
+                <!-- Body outline back -->
+                <path fill="none" stroke="rgba(255,255,255,0.13)" stroke-width="2" d="M 1028.14 166.45 Q 1021.22 166.96 1021.73 176.02 C 1022.38 187.38 1027.41 200.00 1034.70 209.56 Q 1037.97 209.08 1038.42 206.75 C 1039.50 206.91 1039.32 221.19 1039.32 221.19 C 1039.41 225.63 1041.33 230.61 1045.48 233.58 C 1047.33 239.56 1046.14 264.59 1042.52 268.26 Q 1027.38 283.59 1008.53 293.99 C 997.30 300.18 985.80 298.88 972.00 298.05 C 960.16 297.34 951.79 300.13 941.86 307.09 C 927.96 316.83 911.37 335.39 909.24 353.00 C 906.85 372.86 908.46 396.71 910.58 417.97 C 907.17 428.36 903.51 435.29 901.56 441.28 Q 895.91 458.72 896.11 477.26 Q 895.86 486.66 895.55 487.06 C 879.06 508.02 866.67 530.27 860.84 556.43 Q 857.62 576.15 837.96 670.48 C 835.37 679.35 832.82 690.15 824.31 693.38 Q 811.21 698.35 799.91 706.70 C 793.05 711.77 785.68 726.75 769.45 747.77 C 771.01 750.37 776.79 749.81 793.13 740.83 C 795.42 737.84 800.36 735.31 801.16 735.68 C 803.48 741.92 799.51 751.90 779.78 789.01 C 775.87 796.49 784.57 802.15 789.55 794.51 C 796.72 783.50 812.06 762.59 812.43 762.79 Q 807.49 783.70 798.01 804.03 C 802.95 815.95 815.08 800.58 825.23 776.95 A 0.34 0.34 0 0 1 829.69 768.47 C 828.65 774.94 825.80 817.66 833.80 812.51 Q 847.45 767.13 847.45 767.13 C 849.06 778.16 856.99 802.69 861.32 796.92 C 861.98 770.25 868.70 741.28 875.42 700.50 C 874.79 687.46 882.00 664.53 920.51 587.27 C 928.60 572.01 940.57 511.31 965.86 450.00 L 969.87 447.93 C 972.08 465.19 985.69 509.45 986.82 531.50 Q 985.00 573.11 980.47 614.52 C 978.98 628.13 972.65 640.33 969.66 653.60 C 966.01 669.78 963.02 685.46 961.19 702.45 C 959.24 720.52 956.19 739.39 955.83 756.75 C 954.96 797.57 955.28 842.51 962.96 884.21 C 965.15 896.11 975.37 917.40 975.03 942.01 C 971.89 960.94 969.95 978.86 973.41 997.96 C 965.77 1130.76 981.86 1191.82 984.96 1234.92 C 984.02 1244.98 982.27 1255.20 983.14 1291.21 C 963.07 1312.35 952.52 1335.31 974.36 1340.95 C 978.64 1344.83 986.66 1344.41 1003.06 1346.11 Q 1027.72 1339.46 1029.71 1317.92 C 1033.52 1294.97 1034.01 1270.28 1029.51 1227.25 Q 1028.64 1193.94 1033.40 1159.73 C 1035.13 1147.30 1045.54 987.51 1049.21 924.99 C 1053.15 909.35 1059.78 880.01 1072.60 825.22 Q 1077.72 775.82 1076.54 752.58 L 1083.35 752.00 L 1091.50 748.31 Q 1090.36 758.75 1089.82 779.99 C 1089.54 802.24 1094.28 822.45 1108.92 884.46 C 1111.25 894.25 1121.38 983.68 1124.54 993.96 C 1128.10 1000.50 1127.36 1012.10 1122.34 1046.29 C 1121.48 1113.50 1123.91 1123.73 1131.43 1143.10 C 1136.42 1177.99 1136.35 1244.60 1132.00 1259.62 C 1133.83 1271.98 1134.90 1297.66 1137.87 1317.88 C 1137.58 1324.48 1135.49 1332.56 1149.63 1350.84 Q 1163.67 1346.15 1180.03 1344.60 Q 1190.08 1343.66 1193.29 1341.22 C 1203.29 1333.67 1209.17 1324.33 1208.00 1319.87 C 1205.32 1309.62 1185.30 1292.30 1183.62 1269.06 C 1186.76 1256.35 1182.29 1230.50 1182.29 1230.50 C 1185.99 1191.35 1200.90 1131.35 1192.39 940.62 Q 1199.57 907.39 1205.50 881.25 C 1212.13 842.49 1211.97 761.04 1205.90 696.81 Q 1197.85 652.94 1187.05 613.69 Q 1183.04 575.93 1180.85 518.01 C 1191.01 485.74 1197.09 448.35 1201.25 449.41 C 1205.49 466.08 1221.09 497.82 1229.73 535.92 C 1232.46 553.65 1246.25 585.54 1284.56 662.22 Q 1292.52 695.41 1305.74 772.33 C 1313.58 804.01 1321.52 766.22 1323.27 766.99 C 1326.58 781.35 1342.84 816.86 1343.76 805.00 Q 1341.60 786.63 1337.95 768.42 C 1342.31 776.96 1366.03 816.16 1370.44 807.06 C 1367.79 798.97 1355.50 762.34 1355.50 762.34 Q 1368.83 779.14 1378.17 794.66 Q 1388.99 793.50 1386.66 786.58 Q 1378.13 770.40 1367.20 735.38 Q 1371.90 736.99 1393.03 749.97 C 1401.07 750.38 1395.34 738.12 1381.93 726.55 C 1378.04 719.37 1368.18 706.82 1343.50 693.43 C 1335.51 690.42 1310.75 580.29 1308.28 563.74 C 1302.89 533.66 1272.05 486.75 1265.92 440.80 C 1263.95 434.94 1257.10 418.48 1258.88 358.36 C 1257.39 336.36 1241.06 316.98 1223.33 305.40 C 1213.33 298.87 1193.06 298.08 Q 1179.40 298.94 1157.52 293.24 Q 1139.58 283.12 1124.50 267.54 Q 1121.33 254.82 1121.08 242.66 C 1120.97 237.52 1124.51 231.78 Q 1128.95 206.40 1129.15 206.78 L 1130.41 209.10 C 1138.33 202.11 1153.60 172.22 1141.68 166.80 Q 1141.16 166.57 1138.38 168.39"/>
+                <!-- Hair back -->
+                <path fill="#52492B" stroke="none" d="M1138.38 168.39q-.49 4.68-3.37 8.55-.31.41-.81.56c-9.91 3.11-15.97 9.67-20.28 18.94-2.21 4.75-5.25 12.39-11.48 12.3q-18.46-.25-36.94.25-5.35.14-7.43-3.53c-6.78-11.97-10.46-22.53-23.52-27.48-5.05-1.92-5.38-6.47-6.41-11.53q-6.64-26.16 4.43-48.88c8.13-16.7 34.61-21.41 51.58-21.04 4.89.11 9.69-.11 14.42.85 18.79 3.8 33.17 8.5 39.34 28.66q6.38 20.88.47 42.35z"/>
+                <!-- Head back -->
+                <path fill="#c8a882" stroke="none" d="M1028.14 166.45c1.03 5.06 1.352492B6 9.61 6.41 11.53 13.06 4.95 16.74 15.51 23.52 27.48 1.387 2.447 3.863 3.623 7.43 3.53a910.025 910.025 0 0136.94-.25c6.23.09 9.27-7.55 11.48-12.3 4.31-9.27 10.37-15.83 20.28-18.94.333-.1.603-.287.81-.56 1.92-2.58 3.043-5.43 3.37-8.55l2.31-1.51q11.92 5.42-8.21 42.45l-1.26-2.32c-.34.24-.48.61-.42 1.11.86 7.64.75 16.87-2.96 23.31-3.34 3.436-74.18 3.78-75.48-1.38a1.465 1.465 0 00-.55-.82c-4.15-2.97-6.07-7.95-6.16-12.39-.03-1.68.18-14.28-.53-14.63-.207-.1-.33-.037-.37.19-.3 1.553-1.183 2.597-2.65 3.13a.951.951 0 01-1.07-.32c-7.29-9.56-12.32-22.18-12.97-33.54-.34-6.04 1.797-9.23 6.41-9.57z"/>
+                <!-- Trapezius back -->
+                <path id="m-trap-back-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M1071.06 308.94c5.6 4.92 6.96 17.83 7.43 24.88q1.5 22.3.93 44.68-1.2 46.76-5.66 94a.57.56 3.7 01-.59.51q-.68-.03-.94-1.01-4.29-15.9-9.79-25.19c-10.24-17.31-18.8-31.84-25.59-49.4-10.19-26.38-15.6-54.28-26.46-80.58q-3.07-7.43-7.61-14.07-.3-.43.2-.6 12.47-4.28 25.48-4.85c5.54-.25 12.15.86 18.32 1.41 9.7.87 16.77 3.6 24.28 10.22z"/>
+                <path id="m-trap-back-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M1163.98 302.12a.43.43 0 01.22.65q-7.08 10.77-11.41 23.37c-10.53 30.61-17.8 62.94-31.3 91.07-5.11 10.64-15.17 25.22-20.12 36.26q-4.08 9.08-6.59 18.83a.77.77 0 01-1.51-.12q-4.27-45.15-5.52-90.99c-.56-20.28-.74-39.92 2.75-60.43 1.04-6.13 2.77-9.98 7.85-13.85 9.8-7.48 18.02-7.73 30.1-9.11 12.02-1.39 23.92.4 35.53 4.32z"/>
+                <!-- Rear Deltoids -->
+                <path id="m-rear-delt-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M980.66 319.58c.19.14.55.19.65.32a.8.8 0 01-.16 1.15c-6.78 4.75-15.26 9.77-20.03 15.58-6.41 7.78-8.76 16.96-9.44 27.04-.39 5.92-1.68 9.5-5.59 13.43-10.02 10.08-19.04 16.47-31.14 20.41q-.75.25-.75-.55.19-18.4-.09-36.3-.14-9.4 1.07-14.22c4.04-16.07 22.8-33.85 39.68-35.64 9.99-1.06 17.34 2.46 25.8 8.78z"/>
+                <path id="m-rear-delt-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M1227.3 316.44c14.62 9.44 25.48 21.03 25.46 39.51q-.02 20.56-.01 41.37a.37.37 0 01-.51.35c-5.08-2.06-10.41-3.98-14.9-6.97-7.84-5.24-21.14-14.95-21.77-24.95-.69-10.75-2.81-20.85-9.76-29.25-4.68-5.65-12.96-10.58-19.6-15.26q-1.23-.87.01-1.71c4.6-3.13 9.91-6.78 15.25-7.98q13.58-3.03 25.83 4.89z"/>
+                <!-- Triceps -->
+                <path id="m-tricep-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M931.03 442.29c-2.01 2.57-6.52 9.71-10.12 9.17q-.52-.08-.8-.52-1.35-2.09-1.84-4.44c-2.25-10.87-3.28-22.88 1.35-33.38 5.45-12.33 18.27-23.68 29.61-31.2a.47.46 68.7 01.71.32l6.42 38.52q.09.54-.26.97c-.47.58-1.12 1.52-1.71 1.94q-9.11 6.58-18.08 13.36-2.9 2.2-5.28 5.26zM958.15 427.11a.41.41 0 01.55.27q4.44 16.16-2.23 31.41-3.37 7.73-5.91 19.98c-1.51 7.28-8.93 12.21-11.81 18.82-2.42 5.56-2.41 12.5-3.51 16.66-2.14 8.06-8.51 14.15-13.91 20.13a.93.93 0 01-1.54-.25q-.57-1.3-.75-2.89c-1.93-16.91 2.52-33.52 5.71-49.99 2.16-11.21-1.54-24.15 9.68-34.59q9.54-8.86 19.55-17.23c1.3-1.08 2.7-1.72 4.17-2.32z"/>
+                <path id="m-tricep-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M1213.94 424.56q-2.02-1.5-3.08-3.02-.31-.46-.22-1 3.32-19.22 6.42-38.46.09-.56.56-.25 14.9 9.82 24.8 22.71c9.8 12.75 9.72 30.37 5.41 45.13a2.62 2.62 0 01-3.76 1.57c-3.26-1.77-6.22-6.71-8.62-9.67-5.24-6.46-14.75-12-21.51-17.01zM1246.2 534.5q-.95-.3-1.75-1.22c-4.65-5.4-9.13-9.88-11.46-15.51-2.96-7.13-1.37-15.5-5.64-22.09-4.06-6.26-8.72-9.91-10.89-17.58-1.62-5.68-2.81-11.46-4.97-17.02-4.56-11.69-6.45-20.86-3.33-33.56a.59.58-74 01.75-.42q1.69.56 3.22 1.79 11.23 9.08 21.54 19.18c5.39 5.28 6.92 10.13 7.24 18.16.9 22.52 10.62 44.97 6.59 67.49a1.01 1 13.9 01-1.3.78z"/>
+                <!-- Lats / Upper Back -->
+                <path id="m-lat-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M987.06 381.44c-8.48-5.06-14.14-13.28-18.82-22.92q-5.3-10.92-6.46-14.04c-1.49-4.01 35.14-19.22 39.61-20.97q2.75-1.08 4.33-.72c4.33.96 6.61 9.96 7.46 13.7q5.43 23.89 14.65 55.74.78 2.7-.88 4.39c-5.37 5.5-34.69-12.08-39.89-15.18zM1017.44 583.31q-9.11-9.57-16.97-22.03-2.28-3.62-2.91-7.25c-3.28-18.82-5.77-38.04-10.52-56.55-3.53-13.73-4.74-25.19-6.61-41.43-.85-7.35-5.67-13.34-8.22-18.75q-4.93-10.47-6.44-22.88-.33-2.72 1.89-1.11c7.25 5.27 16.36 6.16 26.91 7.56 8.86 1.19 23.41-3.18 28.94-10.76 3.34-4.58 4.7-6.5 8.86-8.77a.67.66-26.4 01.92.3q10.02 21.8 19.93 43.78c2.56 5.69 12.11 15.88 10.77 21.83-3.65 16.09-9.88 31.96-16.24 47.13-9.72 23.21-18.61 46.72-27.2 70.36q-.24.67-.88.35-1.03-.52-2.23-1.78z"/>
+                <path id="m-lat-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M1141.45 397.63a2.17 2.14-3.6 01-1.88-1.64q-.71-2.97.18-5.95 8.74-29.19 11.75-43.29c1.73-8.11 3.07-16.77 6.94-22.08 1.92-2.62 4.28-2.27 7.19-1.15q20.52 7.9 39.09 18.77a1.37 1.36 25.9 01.58 1.67c-6.05 15.46-12.98 30.84-28.43 39.45-9.45 5.26-25.83 15.17-35.42 14.22zM1161.19 419.98c6.1 1.57 11.6.99 17.75.06 8.36-1.27 14.83-2.76 21.34-7.27a.54.53 74.1 01.84.47q-.64 11.88-5.76 22.85c-2.42 5.2-6.64 10.84-8.04 16.67q-1.02 4.24-1.43 8.92-1.64 18.72-6.34 37.47c-4.73 18.91-7.13 38.67-10.8 57.85q-.24 1.24-2.2 4.3c-4.57 7.14-12.22 19.43-19.34 23.88a.44.43-25.6 01-.64-.22c-8.26-22.57-16.6-45.11-25.91-67.23-6.67-15.85-13.27-32.14-17.27-48.42q-1.58-6.41 2.91-12.01 5.21-6.51 8.57-14.14 9.25-21 19.01-41.64a.47.47 0 01.65-.21q6.17 3.37 9.51 9.64c2.45 4.6 12.22 7.75 17.15 9.03z"/>
+                <!-- Lower Back -->
+                <path id="m-lower-back" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M986.76 627.1c-3.13-13.13-7.31-49.77 7.27-58.07 2.4-1.37 4.8-.82 6.7 1.29 6.15 6.8 16.22 18.56 18.77 28.15a1.35 1.3 52.6 01-.11.98c-2.51 4.53-9.96 8.09-15.83 11.36q-5.47 3.06-11.33 10.52c-1.23 1.56-2.6 4.3-4.5 6.06a.59.58-28.2 01-.97-.29zM1023.15 607.96a2.06 2.04-74.3 01-.94-1.69c-.17-10.98 5.04-24.58 8.79-34.9q15.61-42.83 36-83.59a1.11 1.1-62.5 011.51-.48c1.25.66 3.21 12.98 3.46 15.08q6.94 59.25 2.82 116.88-.62 8.66-3.1 19.37-.13.53-.59.24l-47.95-30.91zM1090.76 581.75q.62-5.16 0-10.27.22-29.79 3.05-59.5 1.1-11.58 3.91-22.88.31-1.27.44-1.43 1.08-1.43 1.88.17 23.38 46.97 40.14 96.18c1.8 5.28 5.84 16.69 4.38 22.96a1.64 1.64 0 01-.71 1.01l-47.63 30.72q-1.12.72-1.34-.6-4.54-28-4.12-56.36zM1151.19 603.31q-5.39-3.38-2.19-9.05 8.03-14.22 17.88-24.62c3.49-3.69 9.04.89 10.97 3.99q2.92 4.66 3.8 10.14 3.5 21.77-1.21 43.02a.96.96 0 01-1.77.28c-6.92-11.85-16.03-16.56-27.48-23.76z"/>
+                <!-- Glutes -->
+                <path id="m-glute-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M1045.06 626.19q1.42.61 4.11 4.4.27.39-.19.52c-14.47 4.12-26.13 7.4-38.13 15.77q-15.37 10.71-30.53 21.6a.55.54 74.9 01-.86-.5c1.19-13.13 10.35-35.23 20.46-45.06 9.14-8.88 34.99-1.11 45.14 3.27zM1007.94 762.81c-16.94-16.64-29.37-37.66-31.47-61-2.06-22.84 15.63-34.95 32.18-45.71 8.2-5.33 46.51-27.32 54.37-17.65 5.92 7.29 13.38 15.84 15.44 25.21q3.01 13.63 2.44 27.6-.94 22.59-6.27 44.49c-2.43 9.96-2.9 17.16-2.59 26.75.47 14.83-18.52 17.18-29.12 14.07-6.38-1.87-13.79-4.83-21.35-6.25q-7.39-1.38-13.63-7.51z"/>
+                <path id="m-glute-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M1117.94 631.04q-.13-.03-.27-.06-.12-.02-.06-.13 2.58-4.2 7.05-5.92 12.71-4.87 26.13-5.81c12.93-.91 17.1 3.08 23.28 13.06 5.71 9.22 13.32 24.7 13.44 36.06q.01.76-.61.32-16.65-11.74-33.2-23.51c-10.03-7.14-23.72-10.58-35.76-14.01zM1124.12 776.61c-9.28 2.74-26.75 1.29-28.86-10.88-1.05-6.03.27-14.88-1.3-23.27q-.54-2.94-2.15-9.35c-3.2-12.81-4.02-23.33-5.08-35.27-1.07-12.03-.57-22 1.64-33.17q1.1-5.6 4.19-10.41 8.74-13.58 11.87-16.59c4.96-4.77 15.84.18 21.19 2.11q19.7 7.12 40.17 21.43c9.59 6.7 19.29 14.31 22.93 25.17 4.81 14.37-.65 33.88-7.42 46.87q-7.79 14.97-21.39 28.9-6.74 6.9-15.26 8.36c-7.07 1.21-13.68 4.08-20.53 6.1z"/>
+                <!-- Forearms back -->
+                <path id="m-forearm-back-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M878.44 534.38a.15.15 0 01.18-.13c.47.12 6.68 15.77 7.07 17.22q6.66 24.73 5.52 50.29c-.4 8.9-3.45 17.35-6.64 25.55-7.94 20.38-17.41 41.88-29.59 60.09a1.04 1.02-54.2 01-1.49.25c-.34-.26.37-1.45.47-1.83q5.58-20.8 8.97-42.08 8.65-54.15 15.51-109.36zM869.06 547.19c2.16.36 1.67 6.21 1.57 7.8q-2.54 38.84-9.11 77.16c-3.04 17.71-8.47 41.3-22.09 54.09a.38.38 0 01-.62-.41c14.51-40.44 19-84.26 26.8-126.31q.9-4.88 1.48-10.82.18-1.81 1.97-1.51z"/>
+                <path id="m-forearm-back-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M1272.99 519.43c.27-.33.33-.75.75-1.05a.32.32 0 01.5.29c-.7 7.22-1.77 14.33-1.66 21.54.13 8.94 2.13 24-5.35 31.17q-.37.35-.73 0c-7.63-7.55-14.2-28.29-6.52-36.92q6.6-7.41 13.01-15.03zM1296.52 558.51c-.22-2.94-1.44-10.25 2-12.04a.62.61-18.4 01.89.44q6.25 35.69 12.21 71.07c3.88 23 8.77 46.2 16.73 68.19a.29.29 0 01-.47.31c-11.67-10.67-18.09-31.15-20.89-45.98q-7.27-38.55-10.47-81.99z"/>
+                <!-- Hamstrings -->
+                <path id="m-hamstring-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M979.27 781.53a.71.7 31.7 011.19-.28q1.51 1.62 2.47 3.99c4.6 11.41 8.93 22.66 11.07 34.72 3.38 19.14 4.84 38.23 3.12 57.74q-1.68 19.06-2.99 38.15c-.51 7.55-.88 15.71.07 23.18q1.08 8.54 1.39 17.57a.52.52 0 01-.98.25q-1.03-2.07-1.8-4.62-5.13-16.92-7.25-34.49-5.01-41.45-6.86-83.17-1.09-24.75-.07-49.51.06-1.59.64-3.53zM1030.2 791.53q.17-.36.38-.03c5.26 8.11 9.94 16.15 12.47 25.64 3.12 11.72 5.87 24.36 4.31 36.24q-.5 3.8-3.57 14.02c-10.75 35.81-12.83 74.2-18.5 111.1q-.82 5.4-2.55 10.55-.23.68-.59.07c-4.72-8.07-5.18-25.09-5.34-34.81-.7-43.69 1.92-87.82 6.38-131.28 1.41-13.74 1.99-21.15 7.01-31.5z"/>
+                <path id="m-hamstring-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M1183.25 947.53c2.57 14.85 4.32 31.11 6.22 46.14q.35 2.74-1.11.39c-14.67-23.67-23.34-52.15-30.55-79.32q-5.08-19.14-5.97-39.05-1.36-30.37-2.44-60.74c-.22-6.09-2.56-15.63-.55-21.57q5.87-17.35 18.96-31.07c10.77-11.28 10.17 46.55 10.16 48.97-.13 41.09-.45 74.18 1.91 110.07.57 8.75 1.88 17.53 3.37 26.18zM1136.43 791.52q.27-.42.49.03c3.12 6.46 4.84 12.26 5.68 19.83 5.07 45.8 8.05 94.61 7.56 140.76-.13 11.8-.46 26.22-5.13 37.08a.44.44 0 01-.83-.06q-2.51-9.14-3.69-18.41-3.54-27.64-7.36-55.24c-2.49-18-5.47-35.67-11.09-52.26q-4.35-12.82-2.08-26.75c1.76-10.77 3.58-21.61 8.46-31.16q3.58-6.99 7.99-13.82z"/>
+                <!-- Calves back -->
+                <path id="m-calf-back-l" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M982.69 1149.31c-3.07-2.23-3.98-6.24-5.24-11.03-7.19-27.14-7.88-53.18-6.67-82.78q1.03-25.29 9.23-47.45c4.77-12.89 15.33-24.77 23.79-36q.82-1.09.74.27c-1.37 22.86-2.72 45.67-3.11 68.49-.52 30.56-1.51 61.11-.42 91.68.24 6.83-2.77 16.29-10.08 18.37q-4.39 1.25-8.24-1.55zM1013.69 1150.31c-4.8-2.61-4.66-16.17-4.36-20.75 2.34-36.49 3.44-73.94 1.04-110.45-1.03-15.55.02-31.49.62-47.06q.03-.66.25-.03c2.28 6.45 4.52 12.88 7.39 19.11 5.12 11.14 11.5 22.91 14.83 33.92q2.34 7.74 3.97 16.46 5.3 28.43 5.62 56.09c.2 18.32-7.9 40-22.63 51.79q-3.42 2.73-6.73.92z"/>
+                <path id="m-calf-back-r" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M1172.94 1149.31c-6.06-4.56-6.94-11.4-6.8-19.4.96-52.67-.49-105.31-3.54-157.9q-.04-.72.41-.16 7.96 10.07 15.43 20.44c9.11 12.64 13.61 28.98 15.78 44.21 4.96 34.71 3.75 72.94-5.97 106.5-1.97 6.82-9.18 10.93-15.31 6.31zM1144.41 1147.33q-17.19-17.37-20.08-40.86-.89-7.22-.13-19.97 1.18-20.06 4.69-41.33c2.33-14.1 5.8-25.22 12.41-38.61q8.19-16.59 14.35-34.15a.14.13-37.7 01.26.03q1.01 15.71 1.26 31.44c.18 11.61-1.34 24.91-1.58 36.43-.72 34.7 1.22 62.05 2.06 93.19.17 6.32-1.1 26.1-13.24 13.83z"/>
+                <!-- Neck back -->
+                <path id="m-neck-back" fill="#1c2433" stroke="rgba(255,255,255,0.12)" stroke-width="1" d="M1022.74 290.63a.62.61 25.9 01-.36-1.03q1.71-1.83 4.11-3.11c8.19-4.35 19.4-8.3 23.38-17.48q8.48-19.57 8.22-40.85-.05-4.38.57-5.76c1.98-4.38 9.65-3.66 13.85-2.91 4.3.76 4.71 3.25 4.68 7.3q-.2 24.11-.88 48.2c-.12 4.25 1.6 15.84-4.88 16.32-14.57 1.08-32.6 1.81-48.69-.68zM1095.75 291.46c-4.3-.25-4.9-3.99-4.95-7.71q-.46-29.47-1-58.94c-.13-7.39 11.74-6.23 15.99-4.85 4.2 1.36 3.01 6.89 2.88 10.79-.28 8.88 5.15 41.1 15.32 46.78q8.6 4.81 17.27 9.51 1.97 1.07 3.26 2.36a.8.79 63.6 01-.45 1.35c-16.12 2.17-33.78 1.56-48.32.71z"/>
+              </g>
+            </svg>
+          </div>
+
+          <!-- Legend -->
+          <div style="display:flex;flex-direction:column;gap:6px;justify-content:center;padding-top:24px">
+            <div style="font-size:0.58rem;font-family:'JetBrains Mono',monospace;color:var(--muted2);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">Recovery</div>
+            <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:2px;background:#ff4444"></div><span style="font-size:0.62rem;color:var(--muted2)">Just worked</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:2px;background:#ff8800"></div><span style="font-size:0.62rem;color:var(--muted2)">Recovering</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:2px;background:#aacc00"></div><span style="font-size:0.62rem;color:var(--muted2)">Almost ready</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:2px;background:#22cc44"></div><span style="font-size:0.62rem;color:var(--muted2)">Fully recovered</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:2px;background:var(--s3);border:1px solid var(--border2)"></div><span style="font-size:0.62rem;color:var(--muted2)">Not tracked</span></div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:4px"><div style="width:10px;height:10px;border-radius:2px;background:transparent;border:2px dashed var(--lime)"></div><span style="font-size:0.62rem;color:var(--lime);font-weight:700">Today's target</span></div>
+            <div id="muscle-worked-list" style="margin-top:10px;display:flex;flex-direction:column;gap:3px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Steps -->
+      <div class="card">
+        <div class="card-accent-bar" style="background:var(--lime)"></div>
+        <div class="card-label">Steps Today</div>
+        <div class="stat-val" style="color:var(--lime);font-size:2.8rem" id="stat-steps">—</div>
+        <div class="stat-sub" id="stat-steps-sub">/ 10,000 goal</div>
+        <div style="margin-top:12px;height:6px;background:var(--s3);border-radius:3px;overflow:hidden">
+          <div id="steps-progress-bar" style="height:100%;border-radius:3px;background:linear-gradient(90deg,var(--lime),var(--blue));width:0%;transition:width 1s ease"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--muted2)" id="stat-distance">— km</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--muted2)" id="stat-active-cal">— cal active</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DASHBOARD TAB ══════════════════════════════ -->
+<div class="tab-panel" id="tab-dashboard" style="display:none">
+  <div class="page">
+    <div class="dash-grid">
+
+      <div class="card" style="grid-column:1/-1">
+        <div class="card-accent-bar" style="background:var(--orange)"></div>
+        <div class="vs-title">⚡ THIS WEEK</div>
+        <div id="leaderboard-content"><div class="empty-state" style="padding:12px">Loading...</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-accent-bar" style="background:var(--blue)"></div>
+        <div class="card-label">Current Weight</div>
+        <div class="stat-val" style="color:var(--blue)" id="stat-weight">—</div>
+        <div class="stat-sub" id="stat-weight-sub">lbs</div>
+        <div class="stat-delta" id="stat-weight-delta" style="display:none"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-accent-bar" style="background:var(--lime)"></div>
+        <div class="card-label">Active Streak</div>
+        <div class="stat-val" style="color:var(--lime)" id="stat-streak">0</div>
+        <div class="stat-sub">days consecutive</div>
+      </div>
+
+      <div class="card">
+        <div class="card-accent-bar" style="background:var(--orange)"></div>
+        <div class="card-label">Week Points</div>
+        <div class="stat-val" style="color:var(--orange)" id="stat-points">0</div>
+        <div class="stat-sub" id="stat-points-sub">/ 1000 pt goal</div>
+        <div class="stat-delta delta-neut" id="stat-points-delta"></div>
+      </div>
+
+      <div class="card" style="grid-column:1/3">
+        <div class="card-accent-bar" style="background:var(--lime)"></div>
+        <div class="card-label">Weekly Goals</div>
+        <div class="rings-row" id="rings-row"></div>
+      </div>
+
+      <div class="card" style="grid-column:3/-1">
+        <div class="card-accent-bar" style="background:var(--pink)"></div>
+        <div class="card-label">Achievements</div>
+        <div class="badges-grid" id="badges-grid"></div>
+      </div>
+
+      <div class="card" style="grid-column:1/-1">
+        <div class="heatmap-header">
+          <div class="card-label" style="margin:0">Activity — Last 60 Days</div>
+          <div class="streak-badge"><span class="flame">🔥</span><span id="streak-badge-count">0 DAY STREAK</span></div>
+        </div>
+        <div class="heatmap-day-labels">
+          <div class="heatmap-day-label">Sun</div><div class="heatmap-day-label">Mon</div><div class="heatmap-day-label">Tue</div>
+          <div class="heatmap-day-label">Wed</div><div class="heatmap-day-label">Thu</div><div class="heatmap-day-label">Fri</div><div class="heatmap-day-label">Sat</div>
+        </div>
+        <div class="heatmap-grid" id="heatmap-grid"></div>
+        <div class="heatmap-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(232,50,76,0.7)"></div>Peloton</div>
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(62,184,255,0.7)"></div>Gym Monster</div>
+          <div class="legend-item"><div class="legend-dot" style="background:linear-gradient(135deg,rgba(232,50,76,0.8) 50%,rgba(62,184,255,0.8) 50%)"></div>Both</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--s2)"></div>Rest</div>
+          <div class="legend-item"><div class="legend-dot" style="outline:2px solid var(--lime);outline-offset:1px;background:transparent"></div>Today</div>
+          <div class="legend-item"><div class="legend-dot" style="background:rgba(80,200,120,0.7)"></div>Walking</div>
+        </div>
+      </div>
+
+      <div class="card" style="grid-column:1/-1">
+        <div class="card-label">Recent Workouts</div>
+        <table class="workout-table">
+          <thead><tr><th>Date</th><th>Equipment</th><th>Focus</th><th>Duration</th><th>Calories</th><th>Avg HR</th><th>Intensity</th><th>Pts</th><th>Source</th></tr></thead>
+          <tbody id="workouts-tbody"><tr><td colspan="9" class="empty-state">Loading...</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="card" style="grid-column:1/-1">
+        <div class="card-accent-bar" style="background:var(--blue)"></div>
+        <div class="card-label">Weight Trend</div>
+        <div class="mini-chart-wrap" id="weight-chart-wrap"><div class="chart-empty">No data yet</div></div>
+        <div class="weight-entries" id="weight-entries"></div>
+      </div>
+
+      <div class="card" style="grid-column:1/-1">
+        <div class="card-accent-bar" style="background:var(--blue)"></div>
+        <div class="card-label">Body Composition — Last 7 Days</div>
+        <div style="overflow-x:auto;margin-top:8px">
+          <table class="workout-table" id="body-comp-table">
+            <thead><tr>
+              <th>Date</th>
+              <th style="color:var(--blue)">Weight</th>
+              <th style="color:var(--orange)">Body Fat %</th>
+              <th style="color:var(--blue)">Muscle Mass</th>
+              <th style="color:var(--orange)">Fat Mass</th>
+              <th style="color:var(--lime)">Fat Free</th>
+              <th style="color:var(--muted2)">Bone Mass</th>
+            </tr></thead>
+            <tbody id="body-comp-tbody"><tr><td colspan="7" class="empty-state">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ HISTORY TAB ════════════════════════════════ -->
+<div class="tab-panel" id="tab-history" style="display:none">
+  <div class="page">
+    <div class="history-filters">
+      <button class="filter-btn active" onclick="filterHistory('all', this)">All</button>
+      <button class="filter-btn" onclick="filterHistory('peloton', this)">Peloton</button>
+      <button class="filter-btn" onclick="filterHistory('gym_monster', this)">Gym Monster</button>
+      <button class="filter-btn" onclick="filterHistory('walking', this)">Walking</button>
+    </div>
+    <div class="history-grid">
+      <div class="card" style="grid-column:1/-1">
+        <div class="card-label">Workout History</div>
+        <table class="workout-table">
+          <thead><tr><th>Date</th><th>Equipment</th><th>Focus</th><th>Duration</th><th>Calories</th><th>Avg HR</th><th>Intensity</th><th>Pts</th><th>Source</th></tr></thead>
+          <tbody id="history-tbody"><tr><td colspan="9" class="empty-state">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SETTINGS TAB ═══════════════════════════════ -->
+<div class="tab-panel" id="tab-settings" style="display:none">
+  <div class="page">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+
+      <div class="card" style="grid-column:1/-1">
+        <div class="card-accent-bar" style="background:var(--lime)"></div>
+        <div class="card-label">Manual Sync</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+          <button class="complete-btn" onclick="syncPeloton()" id="peloton-sync-btn">🚴 Sync Peloton Now</button>
+          <span id="peloton-sync-status" style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:var(--muted2)"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-accent-bar" style="background:var(--pink)"></div>
+        <div class="card-label">Vitamin Configuration</div>
+        <div style="display:flex;gap:8px;margin-bottom:16px;">
+          <input class="modal-input" type="text" id="vit-name-input" placeholder="Vitamin name e.g. Vitamin D3" style="flex:1;margin:0">
+          <select class="modal-select" id="vit-schedule-input" style="width:120px;margin:0">
+            <option value="morning">Morning</option>
+            <option value="evening">Evening</option>
+            <option value="both">Both</option>
+          </select>
+          <button class="complete-btn" style="padding:10px 18px;font-size:0.85rem" onclick="addVitamin()">ADD</button>
+        </div>
+        <div id="settings-vitamin-list"><div class="empty-state">Loading...</div></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ═══ WORKOUT MODAL ══════════════════════════════ -->
+<div class="modal-overlay" id="workout-modal">
+  <div class="modal">
+    <div class="modal-title">LOG WORKOUT</div>
+    <div class="modal-field">
+      <label class="modal-label">Equipment</label>
+      <select class="modal-select" id="wk-equipment">
+        <option value="peloton">🚴 Peloton</option>
+        <option value="gym_monster">🏋 Gym Monster</option>
+        <option value="walking">🚶 Walking</option>
+        <option value="both">Both</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">Focus Area</label>
+      <input class="modal-input" type="text" id="wk-focus" placeholder="e.g. Upper Body, HIIT Ride, Legs">
+    </div>
+    <div class="modal-row">
+      <div class="modal-field"><label class="modal-label">Duration (min)</label><input class="modal-input" type="number" id="wk-duration" placeholder="45" min="1" max="300"></div>
+      <div class="modal-field"><label class="modal-label">Calories</label><input class="modal-input" type="number" id="wk-calories" placeholder="optional"></div>
+    </div>
+    <div class="modal-row">
+      <div class="modal-field"><label class="modal-label">Avg Heart Rate</label><input class="modal-input" type="number" id="wk-hr" placeholder="optional"></div>
+      <div class="modal-field"><label class="modal-label">Output (watts)</label><input class="modal-input" type="number" id="wk-watts" placeholder="optional"></div>
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">Intensity</label>
+      <div class="intensity-picker" id="intensity-picker">
+        <button class="int-btn" onclick="selectIntensity(1)">1<br><span style="font-size:0.6rem;color:var(--muted)">Easy</span></button>
+        <button class="int-btn" onclick="selectIntensity(2)">2</button>
+        <button class="int-btn selected" onclick="selectIntensity(3)">3<br><span style="font-size:0.6rem;color:var(--muted)">Mod</span></button>
+        <button class="int-btn" onclick="selectIntensity(4)">4</button>
+        <button class="int-btn" onclick="selectIntensity(5)">5<br><span style="font-size:0.6rem;color:var(--muted)">Max</span></button>
+      </div>
+    </div>
+    <div class="modal-field"><label class="modal-label">Notes</label><input class="modal-input" type="text" id="wk-notes" placeholder="optional"></div>
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="closeModal('workout-modal')">Cancel</button>
+      <button class="modal-submit" onclick="submitWorkout()">LOG IT</button>
+    </div>
+  </div>
+</div>
+
+<button class="fab" id="fab-btn" onclick="openWorkoutModal(false)" style="display:none">+ LOG WORKOUT</button>
+<div class="toast" id="toast"></div>
+<div id="debug-overlay"><button id="debug-overlay-close" onclick="document.getElementById('debug-overlay').classList.remove('visible')">✕ Close</button><div id="debug-log"></div></div>
+
+<script>
+// ─────────────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────────────
+const API = 'https://api-maria.cobrakyle69.com';
+
+// ─────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────
+let token = localStorage.getItem('ft_token');
+let userId = localStorage.getItem('ft_user_id');
+let userName = localStorage.getItem('ft_name');
+let dashData = null;
+let selectedIntensity = 3;
+let waterOz = 0;
+let allWorkouts = [];
+let currentFilter = 'all';
+let todaysPlan = null;
+
+// ─────────────────────────────────────────────────────
+// DEBUG OVERLAY (mobile-friendly — no DevTools needed)
+// Catches JS errors, unhandled promise rejections, and API
+// call results/failures, and shows them directly on-screen.
+// Registered early so it catches errors from later in this file.
+// ─────────────────────────────────────────────────────
 function debugLog(msg) {
   const panel = document.getElementById('debug-overlay');
   const log = document.getElementById('debug-log');
