@@ -285,11 +285,11 @@ svg.ring-svg { transform: rotate(-90deg); }
 .fab { position: fixed; bottom: 28px; right: 28px; z-index: 400; padding: 14px 26px; background: var(--lime); color: var(--bg); border: none; border-radius: 50px; font-family: 'Bebas Neue', sans-serif; font-size: 1rem; letter-spacing: 2px; cursor: pointer; box-shadow: 0 6px 28px var(--lime-glow); transition: transform 0.2s, box-shadow 0.2s; }
 .fab:hover { transform: translateY(-2px); box-shadow: 0 10px 36px var(--lime-glow); }
 .toast { position: fixed; bottom: 90px; right: 28px; z-index: 900; padding: 12px 20px; border-radius: var(--radius-sm); background: var(--s1); border: 1px solid var(--lime); color: var(--lime); font-size: 0.8rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px; opacity: 0; transform: translateY(10px); transition: all 0.3s; pointer-events: none; }
+.toast.show { opacity: 1; transform: none; }
+.empty-state { text-align: center; padding: 32px; color: var(--muted); font-size: 0.78rem; font-family: 'JetBrains Mono', monospace; }
 #debug-overlay { position: fixed; bottom: 0; left: 0; right: 0; max-height: 55vh; overflow-y: auto; background: rgba(20,0,0,0.97); color: #ff8080; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.5; padding: 40px 12px 16px; z-index: 99999; display: none; white-space: pre-wrap; word-break: break-word; border-top: 2px solid #ff3333; }
 #debug-overlay.visible { display: block; }
 #debug-overlay-close { position: fixed; top: 8px; right: 8px; background: #ff3333; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-weight: 800; font-family: 'Syne', sans-serif; font-size: 12px; z-index: 100000; }
-.toast.show { opacity: 1; transform: none; }
-.empty-state { text-align: center; padding: 32px; color: var(--muted); font-size: 0.78rem; font-family: 'JetBrains Mono', monospace; }
 
 /* ─── SETTINGS ────────────────────────────────────── */
 .vitamin-settings-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--s2); border-radius: var(--radius-sm); margin-bottom: 6px; border: 1px solid var(--border); transition: border-color 0.2s; }
@@ -884,6 +884,26 @@ const EXERCISE_MUSCLE_CATEGORIES = {
   'Standing Lateral Raise': ['front_delt'],
   'Standing Front Raise': ['front_delt'],
   'Seated Alternating Biceps Curl': ['bicep'],
+  'Standing Low-to-High Cable Fly': ['chest'],
+  'Seated Cable Chest Fly': ['chest'],
+  'Standing Cable Crossover': ['chest'],
+  'Decline Dual-Handle Chest Press': ['chest', 'tricep'],
+  'Kneeling Chest Press': ['chest', 'tricep', 'front_delt'],
+  'Straight-Arm Lat Pulldown': ['lat'],
+  'Standing Wide-Grip Cable Row': ['lat', 'trap', 'rear_delt'],
+  'Single-Arm Lat Pulldown': ['lat', 'bicep'],
+  'Seated Reverse-Grip Cable Row': ['lat', 'bicep'],
+  'Standing Cable Upright Row': ['trap', 'front_delt'],
+  'Standing Hammer Curl (Rope)': ['bicep', 'forearm'],
+  'Standing Cable Face Pull': ['rear_delt', 'trap'],
+  'Standing Cable Curl (Rope, Neutral Grip)': ['bicep', 'forearm'],
+  'Dual-Handle Box Squat': ['quad', 'glute', 'hamstring'],
+  'Bench-Supported Cable Hip Thrust': ['glute', 'hamstring'],
+  'Dual-Handle Sumo Squat': ['quad', 'glute'],
+  'Standing Cable Hip Extension': ['glute', 'hamstring'],
+  'Standing Cable Hamstring Curl': ['hamstring'],
+  'Dual-Handle Assisted Split Squat': ['quad', 'glute'],
+  'Dual-Handle Reverse Lunge': ['glute', 'quad', 'hamstring'],
 };
 
 // ─────────────────────────────────────────────────────
@@ -1112,4 +1132,574 @@ function renderMuscleMap() {
     const dotColor = m.color || '#22cc44';
     const status = m.pct >= 1 ? 'Ready' : `${Math.round(m.hrsLeft)}h left`;
     return `<div style="display:flex;align-items:center;gap:6px">
-      <div style="width:7px;height:7px;border-radi
+      <div style="width:7px;height:7px;border-radius:50%;background:${dotColor};flex-shrink:0"></div>
+      <span style="font-size:0.6rem;color:var(--text);font-family:'JetBrains Mono',monospace">${m.label}</span>
+      <span style="font-size:0.58rem;color:var(--muted2);margin-left:auto;font-family:'JetBrains Mono',monospace;white-space:nowrap">${status}</span>
+    </div>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────────────────
+// SUGGESTED WORKOUT PLAN (exercise checklist + target highlight)
+// ─────────────────────────────────────────────────────
+async function loadTodaysPlan() {
+  const listEl = document.getElementById('suggested-plan-list');
+  try {
+    const data = await api(`/plan/suggested/${userId}`);
+    todaysPlan = data;
+    renderSuggestedPlan(data);
+    applyTargetHighlight(data?.exercises || []);
+  } catch(e) {
+    if (listEl) listEl.innerHTML = '<div class="empty-state">Error loading plan</div>';
+    console.error('loadTodaysPlan error:', e);
+  }
+}
+
+function renderSuggestedPlan(data) {
+  const listEl = document.getElementById('suggested-plan-list');
+  const labelEl = document.getElementById('suggested-plan-label');
+  const titleEl = document.getElementById('today-schedule-title');
+  const metaEl = document.getElementById('today-schedule-meta');
+  if (!listEl || !labelEl) return;
+
+  if (!data || !data.exercises || !data.exercises.length) {
+    labelEl.textContent = 'Suggested Workout';
+    listEl.innerHTML = `<div class="empty-state">${data?.error || 'No plan data yet'}</div>`;
+    if (titleEl) titleEl.innerHTML = 'NO PLAN YET';
+    if (metaEl) metaEl.innerHTML = '';
+    return;
+  }
+
+  const dayLabel = data.plan_day?.label || data.suggested_day_key;
+  const variantTag = data.plan_day?.variant ? ` · Variant ${data.plan_day.variant}` : '';
+  labelEl.textContent = `Suggested: ${dayLabel}${variantTag}`;
+
+  // Today's Plan card (top of page) now mirrors this same suggested day —
+  // single source of truth instead of the old day-of-week schedule.
+  if (titleEl) titleEl.innerHTML = `<span>${dayLabel}</span>${variantTag}`;
+  if (metaEl) {
+    let tags = `<span class="eq-tag eq-gym">🏋 Gym Monster</span>`;
+    if (data.cardio && data.cardio.due) tags += `<span class="eq-tag eq-peloton">🚴 Cardio due</span>`;
+    metaEl.innerHTML = tags;
+  }
+  const wkEquipEl = document.getElementById('wk-equipment');
+  const wkFocusEl = document.getElementById('wk-focus');
+  if (wkEquipEl) wkEquipEl.value = 'gym_monster';
+  if (wkFocusEl) wkFocusEl.value = dayLabel;
+
+  const cardioBanner = (data.cardio && data.cardio.due)
+    ? `<div class="cardio-due-banner">🚴 Cardio due — ${data.cardio.days_since ?? 'no'} day(s) since your last Peloton ride</div>`
+    : '';
+
+  const stretchBanner = data.plan_day?.pre_stretch
+    ? `<div class="pre-stretch-banner">🧘 Pre-session stretch: <strong>${data.plan_day.pre_stretch}</strong> <span class="pre-stretch-note">(untimed, doesn't count toward the session)</span></div>`
+    : '';
+
+  listEl.innerHTML = stretchBanner + data.exercises.map(ex => `
+    <div class="plan-exercise-row ${ex.completed ? 'completed' : ''}">
+      <div class="plan-exercise-checkbox ${ex.completed ? 'checked' : ''}"
+           onclick="toggleExercise(${ex.plan_exercise_id}, ${ex.completed})">${ex.completed ? '✓' : ''}</div>
+      <div class="plan-exercise-info">
+        <div class="plan-exercise-name ${ex.completed ? 'completed' : ''}">${ex.name}</div>
+        <div class="plan-exercise-meta">${ex.muscle_groups} · ${ex.sets_reps}</div>
+      </div>
+      <span class="plan-exercise-block-tag block-${ex.block}">${ex.block.replace('_', ' ')}</span>
+    </div>
+  `).join('') + cardioBanner;
+}
+
+async function toggleExercise(planExerciseId, isCompleted) {
+  try {
+    if (isCompleted) {
+      if (!todaysPlan?.workout_id) return;
+      await api(`/plan/exercises/${todaysPlan.workout_id}/${planExerciseId}`, 'DELETE');
+    } else {
+      await api('/plan/exercises/complete', 'POST', { plan_exercise_id: planExerciseId });
+    }
+    await loadTodaysPlan();
+    showToast(isCompleted ? 'Unchecked' : '✓ Exercise logged');
+  } catch(e) {
+    showToast('Error updating exercise');
+    console.error('toggleExercise error:', e);
+  }
+}
+
+// Highlights (dashed lime outline, layered over the recovery-status fill color)
+// every muscle targeted by today's suggested exercises. Uses inline style so it
+// always wins over the plain stroke attribute renderMuscleMap sets for recovery
+// status — the two layers can coexist without one clobbering the other.
+function applyTargetHighlight(exercises) {
+  document.querySelectorAll('#muscle-front [data-target-highlight], #muscle-back [data-target-highlight]')
+    .forEach(el => {
+      el.removeAttribute('data-target-highlight');
+      el.style.stroke = '';
+      el.style.strokeWidth = '';
+      el.style.strokeDasharray = '';
+      el.style.filter = '';
+    });
+
+  if (!exercises || !exercises.length) return;
+
+  const targetCategories = new Set();
+  for (const ex of exercises) {
+    const cats = EXERCISE_MUSCLE_CATEGORIES[ex.name];
+    if (cats) cats.forEach(c => targetCategories.add(c));
+  }
+
+  for (const category of targetCategories) {
+    for (const id of (MUSCLE_ELEMENTS[category] || [])) {
+      const el = document.getElementById(id);
+      if (el) {
+        el.setAttribute('data-target-highlight', '1');
+        el.style.stroke = '#c8ff57';
+        el.style.strokeWidth = '4';
+        el.style.strokeDasharray = '3,2';
+        el.style.filter = 'drop-shadow(0 0 3px rgba(200,255,87,0.7))';
+      }
+    }
+  }
+}
+
+
+function renderWaterRing(oz) {
+  const circ = 339.3;
+  document.getElementById('water-oz-display').textContent = Math.round(oz);
+  document.getElementById('water-ring-circle').style.strokeDashoffset = circ - (circ * Math.min(oz / 100, 1));
+}
+
+function renderVitamins(vitamins) {
+  const el = document.getElementById('vitamin-list');
+  if (!vitamins.length) { el.innerHTML = '<div class="empty-state">No vitamins configured</div>'; return; }
+  el.innerHTML = vitamins.map(v => `
+    <div class="vitamin-row ${v.taken ? 'taken' : ''}" onclick="toggleVitamin('${v.vitamin_name}', ${v.taken})">
+      <div><div class="vitamin-name">${v.vitamin_name}</div><div class="vitamin-schedule">${v.schedule}</div></div>
+      <div class="vitamin-check">${v.taken ? '✓' : ''}</div>
+    </div>`).join('');
+}
+
+// ─────────────────────────────────────────────────────
+// DASHBOARD TAB
+// ─────────────────────────────────────────────────────
+function renderDashboard() {
+  if (!dashData) return;
+  const w = dashData.weight;
+  if (w?.latest) {
+    document.getElementById('stat-weight').textContent = parseFloat(w.latest.weight_lbs).toFixed(1);
+    document.getElementById('stat-weight-sub').textContent = w.latest.source === 'auto' ? 'lbs · auto-synced via scale' : 'lbs';
+    if (w.delta_30_day !== null) {
+      const deltaEl = document.getElementById('stat-weight-delta');
+      deltaEl.style.display = 'inline-flex';
+      const d = w.delta_30_day;
+      deltaEl.className = `stat-delta ${d < 0 ? 'delta-good' : 'delta-bad'}`;
+      deltaEl.textContent = `${d > 0 ? '+' : ''}${d} lbs this month`;
+    }
+  }
+  const streak = dashData.streak || 0;
+  document.getElementById('stat-streak').textContent = streak;
+  document.getElementById('streak-badge-count').textContent = `${streak} DAY STREAK`;
+  const wk = dashData.week;
+  document.getElementById('stat-points').textContent = wk.points || 0;
+  document.getElementById('stat-points-sub').textContent = `/ ${wk.points_goal} pt goal · ${wk.workouts?.length || 0} workouts`;
+  const ptLeft = wk.points_goal - (wk.points || 0);
+  document.getElementById('stat-points-delta').textContent = ptLeft > 0 ? `${ptLeft} pts to goal` : '🎯 Goal reached!';
+}
+
+function renderLeaderboard() {
+  const lb = dashData?.leaderboard || [];
+  const wk = dashData?.week;
+  const el = document.getElementById('leaderboard-content');
+  if (!lb.length) { el.innerHTML = '<div class="empty-state" style="padding:12px">No data yet</div>'; return; }
+  const goal = wk?.points_goal || 1000;
+  const html = lb.map((entry, i) => {
+    const isKyle = entry.name === userName;
+    const pct = Math.min((entry.points / goal) * 100, 100);
+    return `<div class="competitor">
+      <div class="competitor-header">
+        <span class="competitor-name" style="color:${isKyle ? 'var(--blue)' : 'var(--pink)'}">${entry.name.toUpperCase()}</span>
+        <span class="competitor-pts">${entry.points} pts</span>
+      </div>
+      <div class="prog-bar"><div class="prog-fill ${isKyle ? 'fill-kyle' : 'fill-haley'}" style="width:${pct}%"></div></div>
+    </div>${i < lb.length - 1 ? '<div class="vs-divider">VS</div>' : ''}`;
+  }).join('');
+  const others = lb.filter(e => e.name !== userName);
+  let note = '';
+  if (others.length) {
+    const diff = (lb.find(e => e.name === userName)?.points || 0) - others[0].points;
+    note = diff >= 0 ? `You're ahead by ${diff} pts. Keep it up.` : `${others[0].name} leads by ${Math.abs(diff)} pts. One session closes the gap.`;
+  }
+  el.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:end"><div>${html}</div>${note ? `<div class="vs-note" style="border:none;padding:0;margin:0;text-align:left;font-size:0.72rem">${note}</div>` : ''}</div>`;
+}
+
+function renderRings() {
+  const wk = dashData?.week;
+  if (!wk) return;
+  const allW = wk.workouts || [];
+  const cardioCount = allW.filter(w => w.equipment === 'peloton' || w.equipment === 'walking').length;
+  const strengthCount = allW.filter(w => w.equipment === 'gym_monster' || w.equipment === 'both').length;
+  const rings = [
+    { label: `Cardio\n${cardioCount}/${wk.cardio_goal}`, pct: Math.min(cardioCount / wk.cardio_goal, 1), color: 'var(--peloton)' },
+    { label: `Strength\n${strengthCount}/${wk.strength_goal}`, pct: Math.min(strengthCount / wk.strength_goal, 1), color: 'var(--gym)' },
+    { label: `Points\n${wk.points}/${wk.points_goal}`, pct: Math.min(wk.points / wk.points_goal, 1), color: 'var(--lime)' },
+  ];
+  const circ = 163.4;
+  document.getElementById('rings-row').innerHTML = rings.map(r => `
+    <div class="ring-wrap">
+      <svg class="ring-svg" width="62" height="62" viewBox="0 0 62 62">
+        <circle cx="31" cy="31" r="26" fill="none" stroke="var(--s3)" stroke-width="7"/>
+        <circle cx="31" cy="31" r="26" fill="none" stroke="${r.color}" stroke-width="7" stroke-dasharray="${circ}" stroke-dashoffset="${circ - circ * r.pct}" stroke-linecap="round"/>
+      </svg>
+      <div class="ring-label">${r.label.replace('\n','<br>')}</div>
+    </div>`).join('');
+}
+
+function renderBadges() {
+  const streak = dashData?.streak || 0;
+  const workouts = dashData?.recent_workouts || [];
+  const hasWeight = !!dashData?.weight?.latest;
+  const badges = [
+    { icon: '💪', label: 'First Rep', earned: workouts.length > 0 },
+    { icon: '🔥', label: 'Week Blaze', earned: streak >= 7 },
+    { icon: '🚴', label: 'Rider', earned: workouts.filter(w => w.equipment === 'peloton').length >= 10 },
+    { icon: '⚖️', label: 'Weighed In', earned: hasWeight },
+    { icon: '⚡', label: '30 Streak', earned: streak >= 30 },
+    { icon: '🏆', label: 'Century', earned: workouts.length >= 100 },
+  ];
+  document.getElementById('badges-grid').innerHTML = badges.map(b =>
+    `<div class="badge-item ${b.earned ? 'earned' : 'locked'}" title="${b.label}">${b.icon}<span class="badge-label">${b.label}</span></div>`
+  ).join('');
+}
+
+// ─────────────────────────────────────────────────────
+// HEATMAP
+// ─────────────────────────────────────────────────────
+function renderHeatmap() {
+  const heatmap = dashData?.heatmap || [];
+  const lookup = {};
+  heatmap.forEach(row => { lookup[row.workout_date] = row.equipment_used; });
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayStr = dateStr(today);
+  const start = new Date(today); start.setDate(start.getDate() - 59);
+  while (start.getDay() !== 0) start.setDate(start.getDate() - 1);
+  const grid = document.getElementById('heatmap-grid');
+  grid.innerHTML = '';
+  let d = new Date(start);
+  while (d <= today || d.getDay() !== 0) {
+    const week = document.createElement('div');
+    week.className = 'heatmap-week';
+    for (let i = 0; i < 7; i++) {
+      const cell = document.createElement('div');
+      const ds = dateStr(d);
+      const dayNum = d.getDate();
+      if (d > today || d < new Date(today.getTime() - 59 * 86400000)) {
+        cell.className = 'heatmap-cell empty';
+      } else {
+        const eq = lookup[ds];
+        let cls = 'heatmap-cell';
+        if (eq) {
+          if (eq.includes('peloton') && eq.includes('gym_monster')) cls += ' both';
+          else if (eq.includes('peloton')) cls += ' peloton';
+          else if (eq.includes('gym_monster')) cls += ' gym_monster';
+          else if (eq.includes('walking')) cls += ' walking';
+        }
+        if (ds === todayStr) cls += ' today';
+        cell.className = cls;
+        cell.title = ds + (eq ? ` · ${eq.replace(',', ' + ')}` : ' · Rest');
+        cell.innerHTML = `<div class="heatmap-cell-inner">${dayNum}</div>`;
+      }
+      week.appendChild(cell);
+      d.setDate(d.getDate() + 1);
+    }
+    grid.appendChild(week);
+    if (d > today && d.getDay() === 0) break;
+  }
+}
+
+// ─────────────────────────────────────────────────────
+// WORKOUTS TABLE
+// ─────────────────────────────────────────────────────
+function renderWorkoutsTable() {
+  const workouts = dashData?.recent_workouts || [];
+  allWorkouts = workouts;
+  renderWorkoutRows('workouts-tbody', workouts);
+}
+
+function renderWorkoutRows(tbodyId, workouts) {
+  const tbody = document.getElementById(tbodyId);
+  if (!workouts.length) { tbody.innerHTML = `<tr><td colspan="9" class="empty-state">No workouts logged yet</td></tr>`; return; }
+  tbody.innerHTML = workouts.map(w => {
+    const dots = [1,2,3,4,5].map(i => `<div class="intensity-dot ${i <= (w.intensity||0) ? 'filled' : ''}"></div>`).join('');
+    const eqTag = w.equipment === 'peloton'
+      ? `<span class="eq-tag eq-peloton">🚴 Peloton</span>`
+      : w.equipment === 'walking'
+      ? `<span class="eq-tag" style="background:rgba(80,200,120,0.12);color:#50c878;border:1px solid rgba(80,200,120,0.3)">🚶 Walking</span>`
+      : `<span class="eq-tag eq-gym">🏋 Gym Monster</span>`;
+    const src = w.source !== 'manual' ? `<span class="source-tag source-auto">${w.source}</span>` : `<span class="source-tag source-manual">manual</span>`;
+    return `<tr>
+      <td class="workout-date">${fmtDate(w.logged_at)}</td>
+      <td>${eqTag}</td>
+      <td class="workout-focus">${w.focus_area || '—'}</td>
+      <td class="workout-duration">${w.duration_mins ? w.duration_mins + ' min' : '—'}</td>
+      <td class="workout-duration">${w.calories ? w.calories + ' cal' : '—'}</td>
+      <td class="workout-duration">${w.avg_heart_rate ? w.avg_heart_rate + ' bpm' : '—'}</td>
+      <td><div class="intensity-dots">${dots}</div></td>
+      <td class="workout-pts">${w.points ? '+' + w.points : '—'}</td>
+      <td>${src}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────────────────
+// WEIGHT CHART
+// ─────────────────────────────────────────────────────
+function renderWeightChart() {
+  const trend = (dashData?.weight?.trend || []).slice().reverse();
+  const wrap = document.getElementById('weight-chart-wrap');
+  const entriesEl = document.getElementById('weight-entries');
+  if (trend.length < 2) {
+    wrap.innerHTML = '<div class="chart-empty">Need 2+ weight entries for chart</div>';
+  } else {
+    const vals = trend.map(t => parseFloat(t.weight_lbs));
+    const minV = Math.min(...vals) - 2, maxV = Math.max(...vals) + 2;
+    const W = 240, H = 80;
+    const pts = trend.map((t, i) => ({
+      x: (i / (trend.length - 1)) * W,
+      y: H - ((parseFloat(t.weight_lbs) - minV) / (maxV - minV)) * H
+    }));
+    const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    wrap.innerHTML = `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <defs><linearGradient id="wg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--blue)" stop-opacity="0.25"/><stop offset="100%" stop-color="var(--blue)" stop-opacity="0"/></linearGradient></defs>
+      <path d="${pathD} L${W},${H} L0,${H} Z" fill="url(#wg)"/>
+      <path d="${pathD}" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      ${pts.map((p,i) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${i === pts.length-1 ? 4 : 2.5}" fill="var(--blue)" ${i === pts.length-1 ? 'stroke="var(--bg)" stroke-width="2"' : ''}/>`).join('')}
+    </svg>`;
+  }
+  const entries = (dashData?.weight?.trend || []).slice(0, 4);
+  if (!entries.length) { entriesEl.innerHTML = ''; return; }
+  entriesEl.innerHTML = entries.map((e, i) => {
+    const next = entries[i + 1];
+    const delta = next ? parseFloat(e.weight_lbs) - parseFloat(next.weight_lbs) : null;
+    const deltaHtml = delta !== null ? `<span class="${delta <= 0 ? 'weight-delta-down' : 'weight-delta-up'}">${delta <= 0 ? '↓' : '↑'} ${Math.abs(delta).toFixed(1)}</span>` : '';
+    const autoPill = e.source === 'auto' ? '<span class="auto-pill">AUTO</span>' : '';
+    return `<div class="weight-entry"><span class="weight-entry-date">${fmtDate(e.logged_at)}</span><span class="weight-entry-val">${parseFloat(e.weight_lbs).toFixed(1)} lbs${autoPill}</span>${deltaHtml}</div>`;
+  }).join('');
+}
+
+async function renderBodyCompTable() {
+  const tbody = document.getElementById('body-comp-tbody');
+  try {
+    const entries = await api(`/weight/history/week/${userId}`);
+    if (!entries || !entries.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No data this week</td></tr>'; return; }
+    const hasComp = entries.some(e => e.muscle_mass_lbs || e.fat_ratio_pct || e.fat_mass_lbs);
+    if (!hasComp) { tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No body composition data yet</td></tr>'; return; }
+    const fmt = (val, decimals = 1, unit = 'lbs') => val !== null && val !== undefined ? `${parseFloat(val).toFixed(decimals)} ${unit}` : '<span style="color:var(--muted)">—</span>';
+    tbody.innerHTML = entries.map(e => `<tr>
+      <td class="workout-date">${fmtDate(e.logged_at)}${e.source === 'auto' ? '<span class="auto-pill">AUTO</span>' : ''}</td>
+      <td class="workout-focus">${fmt(e.weight_lbs)}</td>
+      <td style="color:var(--orange);font-family:'JetBrains Mono',monospace;font-size:0.72rem">${e.fat_ratio_pct !== null && e.fat_ratio_pct !== undefined ? parseFloat(e.fat_ratio_pct).toFixed(1) + '%' : '<span style="color:var(--muted)">—</span>'}</td>
+      <td style="color:var(--blue);font-family:'JetBrains Mono',monospace;font-size:0.72rem">${fmt(e.muscle_mass_lbs)}</td>
+      <td style="font-family:'JetBrains Mono',monospace;font-size:0.72rem">${fmt(e.fat_mass_lbs)}</td>
+      <td style="color:var(--lime);font-family:'JetBrains Mono',monospace;font-size:0.72rem">${fmt(e.fat_free_mass_lbs)}</td>
+      <td style="color:var(--muted2);font-family:'JetBrains Mono',monospace;font-size:0.72rem">${fmt(e.bone_mass_lbs)}</td>
+    </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Error loading data</td></tr>';
+  }
+}
+
+// ─────────────────────────────────────────────────────
+// HISTORY TAB
+// ─────────────────────────────────────────────────────
+async function loadHistory() {
+  try {
+    const data = await api(`/workouts/${userId}?limit=50`);
+    allWorkouts = data || [];
+    renderHistoryTable(allWorkouts);
+  } catch(e) { console.error('History load error:', e); }
+}
+
+function renderHistoryTable(workouts) {
+  const filtered = currentFilter === 'all' ? workouts : workouts.filter(w => w.equipment === currentFilter);
+  const tbody = document.getElementById('history-tbody');
+  if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="9" class="empty-state">No workouts found</td></tr>`; return; }
+  tbody.innerHTML = filtered.map(w => {
+    const dots = [1,2,3,4,5].map(i => `<div class="intensity-dot ${i <= (w.intensity||0) ? 'filled' : ''}"></div>`).join('');
+    const eqTag = w.equipment === 'peloton'
+      ? `<span class="eq-tag eq-peloton">🚴 Peloton</span>`
+      : w.equipment === 'walking'
+      ? `<span class="eq-tag" style="background:rgba(80,200,120,0.12);color:#50c878;border:1px solid rgba(80,200,120,0.3)">🚶 Walking</span>`
+      : `<span class="eq-tag eq-gym">🏋 Gym Monster</span>`;
+    const src = w.source !== 'manual' ? `<span class="source-tag source-auto">${w.source}</span>` : `<span class="source-tag source-manual">manual</span>`;
+    return `<tr>
+      <td class="workout-date">${fmtDate(w.logged_at)}</td><td>${eqTag}</td>
+      <td class="workout-focus">${w.focus_area || '—'}</td>
+      <td class="workout-duration">${w.duration_mins ? w.duration_mins + ' min' : '—'}</td>
+      <td class="workout-duration">${w.calories ? w.calories + ' cal' : '—'}</td>
+      <td class="workout-duration">${w.avg_heart_rate ? w.avg_heart_rate + ' bpm' : '—'}</td>
+      <td><div class="intensity-dots">${dots}</div></td>
+      <td class="workout-pts">${w.points ? '+' + w.points : '—'}</td>
+      <td>${src}</td>
+    </tr>`;
+  }).join('');
+}
+
+function filterHistory(filter, btn) {
+  currentFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderHistoryTable(allWorkouts);
+}
+
+// ─────────────────────────────────────────────────────
+// SETTINGS TAB
+// ─────────────────────────────────────────────────────
+async function loadSettings() {
+  await loadVitaminSettings();
+}
+
+async function syncPeloton() {
+  const btn = document.getElementById('peloton-sync-btn');
+  const status = document.getElementById('peloton-sync-status');
+  btn.disabled = true; btn.textContent = '⏳ Syncing...'; status.textContent = '';
+  try {
+    await api('/admin/sync-peloton', 'POST');
+    status.textContent = 'Sync started — check back in 30 seconds'; status.style.color = 'var(--lime)';
+    showToast('Peloton sync started');
+    setTimeout(async () => { await loadDashboard(); status.textContent = 'Sync complete'; btn.disabled = false; btn.textContent = '🚴 Sync Peloton Now'; }, 30000);
+  } catch(e) { status.textContent = 'Sync failed'; status.style.color = 'var(--orange)'; btn.disabled = false; btn.textContent = '🚴 Sync Peloton Now'; showToast('Sync failed'); }
+}
+
+async function loadVitaminSettings() {
+  const el = document.getElementById('settings-vitamin-list');
+  try { renderVitaminSettings(await api(`/vitamins/config/${userId}`) || []); }
+  catch(e) { el.innerHTML = '<div class="empty-state">Error loading vitamins</div>'; }
+}
+
+function renderVitaminSettings(vitamins) {
+  const el = document.getElementById('settings-vitamin-list');
+  if (!vitamins.length) { el.innerHTML = '<div class="empty-state">No vitamins added yet</div>'; return; }
+  el.innerHTML = vitamins.map(v => `
+    <div class="vitamin-settings-row">
+      <div class="vitamin-settings-left"><div class="vitamin-settings-name">${v.vitamin_name}</div><div class="vitamin-settings-schedule">${v.schedule}</div></div>
+      <button class="vitamin-delete-btn" onclick="deleteVitamin(${v.id}, '${v.vitamin_name}')">Remove</button>
+    </div>`).join('');
+}
+
+async function addVitamin() {
+  const name = document.getElementById('vit-name-input').value.trim();
+  const schedule = document.getElementById('vit-schedule-input').value;
+  if (!name) { showToast('Enter a vitamin name first'); return; }
+  try {
+    await api('/vitamins/config', 'POST', { vitamin_name: name, schedule });
+    document.getElementById('vit-name-input').value = '';
+    showToast(`✓ ${name} added`);
+    await loadVitaminSettings();
+    renderVitamins(await api(`/vitamins/today/${userId}`) || []);
+  } catch(e) { showToast('Error adding vitamin'); }
+}
+
+async function deleteVitamin(id, name) {
+  try {
+    await api(`/vitamins/config/${id}`, 'DELETE');
+    showToast(`${name} removed`);
+    await loadVitaminSettings();
+    renderVitamins(await api(`/vitamins/today/${userId}`) || []);
+  } catch(e) { showToast('Error removing vitamin'); }
+}
+
+// ─────────────────────────────────────────────────────
+// ACTIONS
+// ─────────────────────────────────────────────────────
+async function addWater(oz) {
+  try {
+    const res = await api('/water', 'POST', { oz_amount: oz });
+    waterOz = res.today_total_oz;
+    renderWaterRing(waterOz);
+    showToast(`+${oz} oz · ${Math.round(waterOz)} oz today`);
+  } catch(e) { showToast('Error logging water'); }
+}
+
+async function toggleVitamin(name, alreadyTaken) {
+  if (alreadyTaken) return;
+  try {
+    await api('/vitamins/log', 'POST', { vitamin_name: name });
+    renderVitamins(await api(`/vitamins/today/${userId}`) || []);
+    showToast(`✓ ${name} logged`);
+  } catch(e) { showToast('Error logging vitamin'); }
+}
+
+function openWorkoutModal(prefilled) {
+  if (!prefilled) { document.getElementById('wk-equipment').value = 'peloton'; document.getElementById('wk-focus').value = ''; }
+  document.getElementById('wk-duration').value = '';
+  document.getElementById('wk-calories').value = '';
+  document.getElementById('wk-hr').value = '';
+  document.getElementById('wk-watts').value = '';
+  document.getElementById('wk-notes').value = '';
+  selectIntensity(3);
+  openModal('workout-modal');
+}
+
+function selectIntensity(n) {
+  selectedIntensity = n;
+  document.querySelectorAll('.int-btn').forEach((b, i) => { b.classList.toggle('selected', i + 1 === n); });
+}
+
+async function submitWorkout() {
+  const equipment = document.getElementById('wk-equipment').value;
+  const focus_area = document.getElementById('wk-focus').value;
+  const duration_mins = parseInt(document.getElementById('wk-duration').value) || null;
+  const calories = parseInt(document.getElementById('wk-calories').value) || null;
+  const avg_heart_rate = parseInt(document.getElementById('wk-hr').value) || null;
+  const output_watts = parseInt(document.getElementById('wk-watts').value) || null;
+  const notes = document.getElementById('wk-notes').value;
+  try {
+    const res = await api('/workouts', 'POST', { equipment, focus_area, duration_mins, intensity: selectedIntensity, calories, avg_heart_rate, output_watts, notes });
+    closeModal('workout-modal');
+    showToast(`Workout logged! +${res.points_earned} pts`);
+    await loadDashboard();
+    if (document.querySelector('.nav-tab.active')?.textContent === 'History') await loadHistory();
+  } catch(e) { showToast('Error logging workout'); }
+}
+
+// ─────────────────────────────────────────────────────
+// TAB SWITCHING
+// ─────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => { p.style.display = 'none'; p.classList.remove('active'); });
+  document.querySelector(`[onclick="switchTab('${tab}')"]`)?.classList.add('active');
+  const panel = document.getElementById(`tab-${tab}`);
+  panel.style.display = 'block'; panel.classList.add('active');
+  if (tab === 'history') loadHistory();
+  if (tab === 'settings') loadSettings();
+}
+
+// ─────────────────────────────────────────────────────
+// MODAL HELPERS
+// ─────────────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(el => {
+  el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
+});
+
+// ─────────────────────────────────────────────────────
+// TOAST / UTILS
+// ─────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+function dateStr(d) { return d.toISOString().split('T')[0]; }
+function fmtDate(str) {
+  if (!str) return '—';
+  return new Date(str).toLocaleDateString('en-US', { month:'short', day:'numeric' });
+}
+
+setInterval(() => { if (token && userId) loadDashboard(); }, 5 * 60 * 1000);
+</script>
+</body>
+</html>
